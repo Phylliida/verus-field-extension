@@ -19,7 +19,7 @@ verus! {
 // ═══════════════════════════════════════════════════════════════════
 
 /// Helper: sum of zero function over any range is ≡ 0.
-proof fn lemma_sum_zero_fn<F: Ring>(lo: int, hi: int)
+pub proof fn lemma_sum_zero_fn<F: Ring>(lo: int, hi: int)
     ensures
         sum::<F>(|j: int| F::zero(), lo, hi).eqv(F::zero()),
     decreases (if hi > lo { hi - lo } else { 0 }),
@@ -1061,6 +1061,103 @@ pub proof fn lemma_conv_add_right<F: Ring>(
     );
 }
 
+/// Convolution linearity on left: conv_coeff(a+b, c, k) ≡ conv_coeff(a, c, k) + conv_coeff(b, c, k).
+pub proof fn lemma_conv_add_left<F: Ring>(
+    a: Seq<F>, b: Seq<F>, c: Seq<F>, k: int,
+)
+    requires
+        a.len() >= 2,
+        b.len() == a.len(),
+        c.len() == a.len(),
+    ensures
+        conv_coeff(poly_add(a, b), c, k).eqv(
+            conv_coeff(a, c, k).add(conv_coeff(b, c, k))),
+{
+    let n = a.len();
+    let ab = poly_add(a, b);
+
+    let f_ab = |j: int| coeff(ab, j).mul(coeff(c, k - j));
+    let f_a = |j: int| coeff(a, j).mul(coeff(c, k - j));
+    let f_b = |j: int| coeff(b, j).mul(coeff(c, k - j));
+    let f_sum = |j: int| f_a(j).add(f_b(j));
+
+    assert forall|j: int| 0 <= j < n as int
+        implies (#[trigger] f_ab(j)).eqv(f_sum(j))
+    by {
+        if 0 <= j < n as int {
+            // coeff(ab, j) = a[j] + b[j]
+            // (a[j]+b[j]) * c[k-j] ≡ a[j]*c[k-j] + b[j]*c[k-j]
+            ring_lemmas::lemma_mul_distributes_right::<F>(coeff(a, j), coeff(b, j), coeff(c, k - j));
+        }
+    }
+    lemma_sum_congruence::<F>(f_ab, f_sum, 0, n as int);
+    lemma_sum_add::<F>(f_a, f_b, 0, n as int);
+    F::axiom_eqv_transitive(
+        conv_coeff(ab, c, k),
+        sum::<F>(f_sum, 0, n as int),
+        conv_coeff(a, c, k).add(conv_coeff(b, c, k)),
+    );
+}
+
+/// Convolution with scalar-multiplied first arg: conv_coeff(s*a, c, k) ≡ s * conv_coeff(a, c, k).
+pub proof fn lemma_conv_scale_left<F: Ring>(
+    s: F, a: Seq<F>, c: Seq<F>, k: int,
+)
+    requires
+        a.len() >= 2,
+        c.len() == a.len(),
+    ensures
+        conv_coeff(poly_scalar_mul(s, a), c, k).eqv(
+            s.mul(conv_coeff(a, c, k))),
+{
+    let n = a.len();
+    let sa = poly_scalar_mul(s, a);
+
+    // conv_coeff(sa, c, k) = sum_j coeff(sa, j) * coeff(c, k-j)
+    let f_sa = |j: int| coeff(sa, j).mul(coeff(c, k - j));
+    // coeff(sa, j) = s * a[j] when 0 <= j < n, else 0
+    let f_scaled = |j: int| s.mul(coeff(a, j)).mul(coeff(c, k - j));
+    let f_a = |j: int| coeff(a, j).mul(coeff(c, k - j));
+
+    // Step 1: f_sa(j) ≡ f_scaled(j)
+    assert forall|j: int| 0 <= j < n as int
+        implies (#[trigger] f_sa(j)).eqv(f_scaled(j))
+    by {
+        if 0 <= j < n as int {
+            // coeff(sa, j) = s * a[j], so coeff(sa, j) * c[k-j] = (s*a[j]) * c[k-j]
+            F::axiom_eqv_reflexive(s.mul(a[j]).mul(coeff(c, k - j)));
+        } else {
+            F::axiom_eqv_reflexive(f_sa(j));
+        }
+    }
+    lemma_sum_congruence::<F>(f_sa, f_scaled, 0, n as int);
+
+    // Step 2: f_scaled(j) = s * (a[j] * c[k-j]) by associativity
+    let f_assoc = |j: int| s.mul(f_a(j));
+    assert forall|j: int| 0 <= j < n as int
+        implies (#[trigger] f_scaled(j)).eqv(f_assoc(j))
+    by {
+        // (s * a[j]) * c[k-j] ≡ s * (a[j] * c[k-j])
+        F::axiom_mul_associative(s, coeff(a, j), coeff(c, k - j));
+    }
+    lemma_sum_congruence::<F>(f_scaled, f_assoc, 0, n as int);
+
+    // Step 3: sum(s * f_a(j)) ≡ s * sum(f_a) by sum_scale
+    lemma_sum_scale::<F>(s, f_a, 0, n as int);
+
+    // Chain: conv(sa, c, k) ≡ sum(f_scaled) ≡ sum(f_assoc) ≡ s * conv(a, c, k)
+    F::axiom_eqv_transitive(
+        sum::<F>(f_sa, 0, n as int),
+        sum::<F>(f_scaled, 0, n as int),
+        sum::<F>(f_assoc, 0, n as int),
+    );
+    F::axiom_eqv_transitive(
+        sum::<F>(f_sa, 0, n as int),
+        sum::<F>(f_assoc, 0, n as int),
+        s.mul(sum::<F>(f_a, 0, n as int)),
+    );
+}
+
 /// reduce_additive: poly_reduce distributes over polynomial addition.
 pub proof fn lemma_reduce_additive<F: Ring>(
     h1: Seq<F>, h2: Seq<F>, p_coeffs: Seq<F>,
@@ -1207,6 +1304,149 @@ pub proof fn lemma_ext_mul_distributes_left<F: Ring, P: MinimalPoly<F>>(
             poly_reduce(raw_abc, p)[i],
             poly_reduce(raw_sum, p)[i],
             poly_reduce(raw_ab, p)[i].add(poly_reduce(raw_ac, p)[i]),
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Right scaling: sum(f(i)*k) ≡ sum(f)*k
+// ═══════════════════════════════════════════════════════════════════
+
+/// Right scaling: sum(f(i)*k, lo, hi) ≡ sum(f, lo, hi) * k.
+pub proof fn lemma_sum_scale_right<R: Ring>(
+    f: spec_fn(int) -> R,
+    k: R,
+    lo: int, hi: int,
+)
+    ensures
+        sum::<R>(|i: int| f(i).mul(k), lo, hi).eqv(
+            sum::<R>(f, lo, hi).mul(k)),
+    decreases (if hi > lo { hi - lo } else { 0 }),
+{
+    if hi <= lo {
+        ring_lemmas::lemma_mul_zero_left::<R>(k);
+        R::axiom_eqv_symmetric(R::zero().mul(k), R::zero());
+    } else {
+        let g = |i: int| f(i).mul(k);
+        lemma_sum_scale_right::<R>(f, k, lo + 1, hi);
+        // IH: sum(g, lo+1, hi) ≡ sum(f, lo+1, hi) * k
+        additive_group_lemmas::lemma_add_congruence_right::<R>(
+            f(lo).mul(k),
+            sum::<R>(g, lo + 1, hi),
+            sum::<R>(f, lo + 1, hi).mul(k),
+        );
+        // f(lo)*k + sum(f,lo+1,hi)*k ≡ (f(lo) + sum(f,lo+1,hi)) * k
+        ring_lemmas::lemma_mul_distributes_right::<R>(f(lo), sum::<R>(f, lo + 1, hi), k);
+        R::axiom_eqv_symmetric(
+            f(lo).add(sum::<R>(f, lo + 1, hi)).mul(k),
+            f(lo).mul(k).add(sum::<R>(f, lo + 1, hi).mul(k)),
+        );
+        R::axiom_eqv_transitive(
+            f(lo).mul(k).add(sum::<R>(g, lo + 1, hi)),
+            f(lo).mul(k).add(sum::<R>(f, lo + 1, hi).mul(k)),
+            f(lo).add(sum::<R>(f, lo + 1, hi)).mul(k),
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Fubini: interchange order of finite summation
+// ═══════════════════════════════════════════════════════════════════
+
+/// Fubini's theorem for finite sums: sum_i(sum_j(f(i,j))) ≡ sum_j(sum_i(f(i,j))).
+/// Proof by induction on hi_i - lo_i.
+pub proof fn lemma_sum_fubini<R: Ring>(
+    f: spec_fn(int, int) -> R,
+    lo_i: int, hi_i: int,
+    lo_j: int, hi_j: int,
+)
+    ensures
+        sum::<R>(|i: int| sum::<R>(|j: int| f(i, j), lo_j, hi_j), lo_i, hi_i).eqv(
+            sum::<R>(|j: int| sum::<R>(|i: int| f(i, j), lo_i, hi_i), lo_j, hi_j)),
+    decreases (if hi_i > lo_i { hi_i - lo_i } else { 0 }),
+{
+    let outer_i = |i: int| sum::<R>(|j: int| f(i, j), lo_j, hi_j);
+    let outer_j = |j: int| sum::<R>(|i: int| f(i, j), lo_i, hi_i);
+
+    if hi_i <= lo_i {
+        // LHS is empty sum ≡ 0
+        lemma_sum_empty::<R>(outer_i, lo_i, hi_i);
+
+        // RHS: each inner sum is empty → outer_j(j) ≡ 0
+        let zero_fn = |j: int| R::zero();
+        assert forall|j: int| lo_j <= j < hi_j
+            implies (#[trigger] outer_j(j)).eqv(zero_fn(j))
+        by {
+            lemma_sum_empty::<R>(|i: int| f(i, j), lo_i, hi_i);
+        }
+
+        if hi_j > lo_j {
+            lemma_sum_congruence::<R>(outer_j, zero_fn, lo_j, hi_j);
+            lemma_sum_zero_fn::<R>(lo_j, hi_j);
+            R::axiom_eqv_transitive(
+                sum::<R>(outer_j, lo_j, hi_j),
+                sum::<R>(zero_fn, lo_j, hi_j),
+                R::zero(),
+            );
+        } else {
+            lemma_sum_empty::<R>(outer_j, lo_j, hi_j);
+        }
+        // Both sides ≡ 0
+        R::axiom_eqv_symmetric(sum::<R>(outer_j, lo_j, hi_j), R::zero());
+        R::axiom_eqv_transitive(
+            sum::<R>(outer_i, lo_i, hi_i),
+            R::zero(),
+            sum::<R>(outer_j, lo_j, hi_j),
+        );
+    } else {
+        // Inductive case
+        let outer_j_tail = |j: int| sum::<R>(|i: int| f(i, j), lo_i + 1, hi_i);
+        let f_lo = |j: int| f(lo_i, j);
+        let combined = |j: int| f_lo(j).add(outer_j_tail(j));
+
+        // Step 1: Peel first (implicit from sum definition unfolding)
+        // sum(outer_i, lo_i, hi_i) = outer_i(lo_i) + sum(outer_i, lo_i+1, hi_i)
+
+        // Step 2: IH: sum(outer_i, lo_i+1, hi_i) ≡ sum(outer_j_tail, lo_j, hi_j)
+        lemma_sum_fubini::<R>(f, lo_i + 1, hi_i, lo_j, hi_j);
+
+        // Step 2b: outer_i(lo_i) + sum(outer_i, lo_i+1, hi_i)
+        //        ≡ outer_i(lo_i) + sum(outer_j_tail, lo_j, hi_j)
+        additive_group_lemmas::lemma_add_congruence_right::<R>(
+            outer_i(lo_i),
+            sum::<R>(outer_i, lo_i + 1, hi_i),
+            sum::<R>(outer_j_tail, lo_j, hi_j),
+        );
+
+        // Step 3: sum_add reversed
+        // sum(combined) ≡ sum(f_lo) + sum(outer_j_tail)
+        // outer_i(lo_i) = sum(f_lo, lo_j, hi_j) definitionally
+        lemma_sum_add::<R>(f_lo, outer_j_tail, lo_j, hi_j);
+        R::axiom_eqv_symmetric(
+            sum::<R>(combined, lo_j, hi_j),
+            sum::<R>(f_lo, lo_j, hi_j).add(sum::<R>(outer_j_tail, lo_j, hi_j)),
+        );
+
+        // Step 4: Pointwise combined(j) ≡ outer_j(j)
+        assert forall|j: int| lo_j <= j < hi_j
+            implies (#[trigger] combined(j)).eqv(outer_j(j))
+        by {
+            lemma_sum_peel_first::<R>(|i: int| f(i, j), lo_i, hi_i);
+            // outer_j(j) ≡ f(lo_i, j) + sum(|i| f(i,j), lo_i+1, hi_i) = combined(j)
+            R::axiom_eqv_symmetric(outer_j(j), combined(j));
+        }
+        lemma_sum_congruence::<R>(combined, outer_j, lo_j, hi_j);
+
+        // Chain: LHS ≡ outer_i(lo_i) + sum(outer_j_tail) ≡ sum(combined) ≡ RHS
+        R::axiom_eqv_transitive(
+            outer_i(lo_i).add(sum::<R>(outer_i, lo_i + 1, hi_i)),
+            outer_i(lo_i).add(sum::<R>(outer_j_tail, lo_j, hi_j)),
+            sum::<R>(combined, lo_j, hi_j),
+        );
+        R::axiom_eqv_transitive(
+            outer_i(lo_i).add(sum::<R>(outer_i, lo_i + 1, hi_i)),
+            sum::<R>(combined, lo_j, hi_j),
+            sum::<R>(outer_j, lo_j, hi_j),
         );
     }
 }
