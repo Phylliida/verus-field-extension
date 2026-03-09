@@ -738,7 +738,7 @@ pub proof fn lemma_reduce_congruence<F: Ring>(h1: Seq<F>, h2: Seq<F>, p_coeffs: 
 // ═══════════════════════════════════════════════════════════════════
 
 /// poly_reduce of input with len >= n gives output with len == n.
-proof fn lemma_reduce_exact_length<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>)
+pub proof fn lemma_reduce_exact_length<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>)
     requires
         p_coeffs.len() >= 2,
         h.len() >= p_coeffs.len(),
@@ -1068,7 +1068,6 @@ pub proof fn lemma_conv_add_left<F: Ring>(
     requires
         a.len() >= 2,
         b.len() == a.len(),
-        c.len() == a.len(),
     ensures
         conv_coeff(poly_add(a, b), c, k).eqv(
             conv_coeff(a, c, k).add(conv_coeff(b, c, k))),
