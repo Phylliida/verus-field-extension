@@ -23,4 +23,7 @@ pub mod ring_lemmas;
 pub mod field;
 
 #[cfg(verus_keep_ghost)]
+pub mod assoc_lemmas;
+
+#[cfg(verus_keep_ghost)]
 pub mod instances;

@@ -133,4 +133,34 @@ pub open spec fn ext_mul<F: Ring>(a: Seq<F>, b: Seq<F>, p_coeffs: Seq<F>) -> Seq
     poly_reduce(poly_mul_raw(a, b), p_coeffs)
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Additional polynomial operations for associativity proof
+// ═══════════════════════════════════════════════════════════════════
+
+/// The full monic polynomial p(x) = x^n + p_coeffs as a sequence of length n+1.
+/// p_full_seq([c_0, ..., c_{n-1}]) = [c_0, ..., c_{n-1}, 1].
+pub open spec fn p_full_seq<F: Ring>(p_coeffs: Seq<F>) -> Seq<F> {
+    Seq::new((p_coeffs.len() + 1) as nat, |i: int|
+        if i < p_coeffs.len() as int { p_coeffs[i] } else { F::one() })
+}
+
+/// Scalar multiplication of a polynomial: s * [a_0, ..., a_{n-1}] = [s*a_0, ..., s*a_{n-1}].
+pub open spec fn poly_scalar_mul<F: Ring>(s: F, p: Seq<F>) -> Seq<F> {
+    Seq::new(p.len(), |i: int| s.mul(p[i]))
+}
+
+/// Shift polynomial by prepending zeros: poly_shift(p, k) has length p.len()+k,
+/// with zeros at indices [0, k) and p[i-k] at indices [k, k+p.len()).
+pub open spec fn poly_shift<F: Ring>(p: Seq<F>, shift: nat) -> Seq<F> {
+    Seq::new((p.len() + shift) as nat, |i: int|
+        if i < shift as int { F::zero() } else { p[i - shift] })
+}
+
+/// Standard basis vector e_j of length n: all zeros except 1 at position j.
+pub open spec fn poly_basis<F: Ring>(n: nat, j: int) -> Seq<F>
+    recommends 0 <= j < n as int
+{
+    Seq::new(n, |i: int| if i == j { F::one() } else { F::zero() })
+}
+
 } // verus!
