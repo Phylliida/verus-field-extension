@@ -187,13 +187,94 @@ pub proof fn lemma_conv_delta_right<F: Ring>(a: Seq<F>, n: nat, k: int)
 }
 
 // ═══════════════════════════════════════════════════════════════════
+//  Sum range extension helpers
+// ═══════════════════════════════════════════════════════════════════
+
+/// Extend sum range to the left with zero terms.
+/// If f(i) ≡ 0 for all new_lo <= i < lo, then sum(f, new_lo, hi) ≡ sum(f, lo, hi).
+proof fn lemma_sum_extend_left_zero<F: Ring>(
+    f: spec_fn(int) -> F, new_lo: int, lo: int, hi: int,
+)
+    requires
+        new_lo <= lo,
+        lo <= hi,
+        forall|i: int| new_lo <= i < lo ==> (#[trigger] f(i)).eqv(F::zero()),
+    ensures
+        sum::<F>(f, new_lo, hi).eqv(sum::<F>(f, lo, hi)),
+    decreases lo - new_lo,
+{
+    if new_lo == lo {
+        F::axiom_eqv_reflexive(sum::<F>(f, lo, hi));
+    } else {
+        // sum(f, new_lo, hi) ≡ f(new_lo) + sum(f, new_lo+1, hi)
+        lemma_sum_peel_first::<F>(f, new_lo, hi);
+        // f(new_lo) ≡ 0
+        // By induction: sum(f, new_lo+1, hi) ≡ sum(f, lo, hi)
+        lemma_sum_extend_left_zero::<F>(f, new_lo + 1, lo, hi);
+        // 0 + sum(f, lo, hi) ≡ sum(f, lo, hi)
+        additive_group_lemmas::lemma_add_congruence::<F>(
+            f(new_lo), F::zero(),
+            sum::<F>(f, new_lo + 1, hi), sum::<F>(f, lo, hi),
+        );
+        additive_group_lemmas::lemma_add_zero_left::<F>(sum::<F>(f, lo, hi));
+        F::axiom_eqv_transitive(
+            f(new_lo).add(sum::<F>(f, new_lo + 1, hi)),
+            F::zero().add(sum::<F>(f, lo, hi)),
+            sum::<F>(f, lo, hi),
+        );
+        F::axiom_eqv_transitive(
+            sum::<F>(f, new_lo, hi),
+            f(new_lo).add(sum::<F>(f, new_lo + 1, hi)),
+            sum::<F>(f, lo, hi),
+        );
+    }
+}
+
+/// Extend sum range to the right with zero terms.
+/// If f(i) ≡ 0 for all hi <= i < new_hi, then sum(f, lo, new_hi) ≡ sum(f, lo, hi).
+proof fn lemma_sum_extend_right_zero<F: Ring>(
+    f: spec_fn(int) -> F, lo: int, hi: int, new_hi: int,
+)
+    requires
+        lo <= hi,
+        hi <= new_hi,
+        forall|i: int| hi <= i < new_hi ==> (#[trigger] f(i)).eqv(F::zero()),
+    ensures
+        sum::<F>(f, lo, new_hi).eqv(sum::<F>(f, lo, hi)),
+    decreases new_hi - hi,
+{
+    if hi == new_hi {
+        F::axiom_eqv_reflexive(sum::<F>(f, lo, hi));
+    } else {
+        // sum(f, lo, new_hi) ≡ sum(f, lo, new_hi-1) + f(new_hi-1)
+        lemma_sum_peel_last::<F>(f, lo, new_hi);
+        // f(new_hi-1) ≡ 0
+        // By induction: sum(f, lo, new_hi-1) ≡ sum(f, lo, hi)
+        lemma_sum_extend_right_zero::<F>(f, lo, hi, new_hi - 1);
+        // sum(f, lo, hi) + 0 ≡ sum(f, lo, hi)
+        additive_group_lemmas::lemma_add_congruence::<F>(
+            sum::<F>(f, lo, new_hi - 1), sum::<F>(f, lo, hi),
+            f(new_hi - 1), F::zero(),
+        );
+        F::axiom_add_zero_right(sum::<F>(f, lo, hi));
+        F::axiom_eqv_transitive(
+            sum::<F>(f, lo, new_hi - 1).add(f(new_hi - 1)),
+            sum::<F>(f, lo, hi).add(F::zero()),
+            sum::<F>(f, lo, hi),
+        );
+        F::axiom_eqv_transitive(
+            sum::<F>(f, lo, new_hi),
+            sum::<F>(f, lo, new_hi - 1).add(f(new_hi - 1)),
+            sum::<F>(f, lo, hi),
+        );
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Convolution commutativity
 // ═══════════════════════════════════════════════════════════════════
 
 /// conv_coeff(a, b, k) ≡ conv_coeff(b, a, k).
-///
-/// This follows from mul commutativity + sum reindexing, but the formal
-/// proof requires careful range management. Assumed for now.
 pub proof fn lemma_conv_commutative<F: Ring>(a: Seq<F>, b: Seq<F>, k: int)
     requires
         a.len() >= 2,
@@ -202,10 +283,298 @@ pub proof fn lemma_conv_commutative<F: Ring>(a: Seq<F>, b: Seq<F>, k: int)
     ensures
         conv_coeff(a, b, k).eqv(conv_coeff(b, a, k)),
 {
-    // The proof involves: (1) mul_commutative on each term,
-    // (2) sum reversal / reindexing to swap a[j]*b[k-j] ↔ b[j]*a[k-j].
-    // Formally correct but needs careful range arithmetic; deferred.
-    assume(conv_coeff(a, b, k).eqv(conv_coeff(b, a, k)));
+    let n = a.len() as int;
+
+    // f(j) = coeff(a, j) * coeff(b, k-j)  — the integrand of conv(a, b, k)
+    let f = |j: int| coeff(a, j).mul(coeff(b, k - j));
+    // g(j) = coeff(b, k-j) * coeff(a, j)  — mul-commuted
+    let g = |j: int| coeff(b, k - j).mul(coeff(a, j));
+    // h(j) = coeff(b, j) * coeff(a, k-j)  — the integrand of conv(b, a, k)
+    let h = |j: int| coeff(b, j).mul(coeff(a, k - j));
+
+    // Step 1: sum(f, 0, n) ≡ sum(g, 0, n) via mul_commutative
+    assert forall|j: int| 0 <= j < n implies (#[trigger] f(j)).eqv(g(j)) by {
+        F::axiom_mul_commutative(coeff(a, j), coeff(b, k - j));
+    }
+    lemma_sum_congruence::<F>(f, g, 0, n);
+
+    // Step 2: sum(g, 0, n) ≡ sum(|i| g(n-1-i), 0, n) via sum_reverse
+    lemma_sum_reverse::<F>(g, 0, n);
+    // reverse gives: sum(g, 0, n) ≡ sum(|i| g(0 + n - 1 - i), 0, n)
+    let p = |i: int| g(n - 1 - i);
+    // p(i) = g(n-1-i) = coeff(b, k-(n-1-i)) * coeff(a, n-1-i)
+    //      = coeff(b, k-n+1+i) * coeff(a, n-1-i)
+
+    // Step 3: sum(p, 0, n) ≡ sum(q, k-n+1, k+1) via sum_reindex
+    // reindex with shift (n-1-k): sum(p, 0, n) ≡ sum(|i| p(i+(n-1-k)), 0-(n-1-k), n-(n-1-k))
+    //   = sum(|i| p(i+n-1-k), k-n+1, k+1)
+    lemma_sum_reindex::<F>(p, 0, n, n - 1 - k);
+    let q = |i: int| p(i + (n - 1 - k));
+    // q(i) = p(i+n-1-k) = g(n-1-(i+n-1-k)) = g(k-i)
+    //      = coeff(b, k-(k-i)) * coeff(a, k-i) = coeff(b, i) * coeff(a, k-i) = h(i)
+
+    // Step 3b: show q ≡ h pointwise on [k-n+1, k+1)
+    assert forall|i: int| k - n + 1 <= i < k + 1
+        implies (#[trigger] q(i)).eqv(h(i))
+    by {
+        F::axiom_eqv_reflexive(q(i));
+    }
+    lemma_sum_congruence::<F>(q, h, k - n + 1, k + 1);
+
+    // Chain so far: sum(f, 0, n) ≡ sum(g, 0, n) ≡ sum(p, 0, n) ≡ sum(q, k-n+1, k+1) ≡ sum(h, k-n+1, k+1)
+    F::axiom_eqv_transitive(
+        sum::<F>(p, 0, n),
+        sum::<F>(q, k - n + 1, k + 1),
+        sum::<F>(h, k - n + 1, k + 1),
+    );
+    F::axiom_eqv_transitive(
+        sum::<F>(g, 0, n),
+        sum::<F>(p, 0, n),
+        sum::<F>(h, k - n + 1, k + 1),
+    );
+    F::axiom_eqv_transitive(
+        sum::<F>(f, 0, n),
+        sum::<F>(g, 0, n),
+        sum::<F>(h, k - n + 1, k + 1),
+    );
+    // Now have: conv_coeff(a, b, k) = sum(f, 0, n) ≡ sum(h, k-n+1, k+1)
+
+    // Step 4: Range reconciliation — show sum(h, k-n+1, k+1) ≡ sum(h, 0, n) = conv_coeff(b, a, k)
+    // h(j) ≡ 0 when j < 0 (coeff(b, j) = 0) or j >= n (coeff(b, j) = 0)
+    //       or k-j < 0 (coeff(a, k-j) = 0) or k-j >= n (coeff(a, k-j) = 0)
+
+    // Use a common range [min(0, k-n+1), max(n, k+1)) and extend both sums to it
+    let common_lo: int = if k - n + 1 < 0 { k - n + 1 } else { 0 };
+    let common_hi: int = if k + 1 > n { k + 1 } else { n };
+
+    // h(j) ≡ 0 for j < 0 (covers extending [k-n+1, ...) to [0, ...) when k-n+1 < 0)
+    assert forall|j: int| common_lo <= j < 0 implies (#[trigger] h(j)).eqv(F::zero()) by {
+        ring_lemmas::lemma_mul_zero_left::<F>(coeff(a, k - j));
+    }
+    // h(j) ≡ 0 for j >= n
+    assert forall|j: int| n <= j < common_hi implies (#[trigger] h(j)).eqv(F::zero()) by {
+        ring_lemmas::lemma_mul_zero_left::<F>(coeff(a, k - j));
+    }
+    // h(j) ≡ 0 for j > k (coeff(a, k-j) = 0 since k-j < 0)
+    assert forall|j: int| common_lo <= j < (k - n + 1) implies (#[trigger] h(j)).eqv(F::zero()) by {
+        // k - j > k - (k-n+1) = n - 1, so k-j >= n, coeff(a, k-j) = 0
+        F::axiom_mul_zero_right(coeff(b, j));
+    }
+    // h(j) ≡ 0 for k < j (coeff(a, k-j) = 0 since k-j < 0)
+    assert forall|j: int| (k + 1) <= j < common_hi implies (#[trigger] h(j)).eqv(F::zero()) by {
+        F::axiom_mul_zero_right(coeff(b, j));
+    }
+
+    // Extend sum(h, k-n+1, k+1) to sum(h, common_lo, common_hi)
+    if common_lo < k - n + 1 {
+        lemma_sum_extend_left_zero::<F>(h, common_lo, k - n + 1, k + 1);
+    } else {
+        F::axiom_eqv_reflexive(sum::<F>(h, k - n + 1, k + 1));
+    }
+    if k + 1 < common_hi {
+        lemma_sum_extend_right_zero::<F>(h, common_lo, k + 1, common_hi);
+    } else {
+        F::axiom_eqv_reflexive(sum::<F>(h, common_lo, k + 1));
+    }
+    // sum(h, common_lo, common_hi) ≡ sum(h, k-n+1, k+1)
+    // Need to chain: sum(h, common_lo, common_hi) ≡ sum(h, common_lo, k+1) ≡ sum(h, k-n+1, k+1)
+
+    // Extend sum(h, 0, n) to sum(h, common_lo, common_hi)
+    if common_lo < 0 {
+        lemma_sum_extend_left_zero::<F>(h, common_lo, 0, n);
+    } else {
+        F::axiom_eqv_reflexive(sum::<F>(h, 0, n));
+    }
+    if n < common_hi {
+        lemma_sum_extend_right_zero::<F>(h, common_lo, n, common_hi);
+    } else {
+        F::axiom_eqv_reflexive(sum::<F>(h, common_lo, n));
+    }
+    // sum(h, common_lo, common_hi) ≡ sum(h, 0, n)
+
+    // Both extend to the same range, chain via transitivity
+    // sum(h, k-n+1, k+1) ≡ sum(h, common_lo, common_hi) ≡ sum(h, 0, n)
+    F::axiom_eqv_symmetric(
+        sum::<F>(h, common_lo, common_hi),
+        sum::<F>(h, k - n + 1, k + 1),
+    );
+    F::axiom_eqv_transitive(
+        sum::<F>(h, k - n + 1, k + 1),
+        sum::<F>(h, common_lo, common_hi),
+        sum::<F>(h, 0, n),
+    );
+
+    // Final chain: conv_coeff(a, b, k) ≡ sum(h, k-n+1, k+1) ≡ sum(h, 0, n) = conv_coeff(b, a, k)
+    F::axiom_eqv_transitive(
+        conv_coeff(a, b, k),
+        sum::<F>(h, k - n + 1, k + 1),
+        sum::<F>(h, 0, n),
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Algebraic helper: (a+b) - (x+y) ≡ (a-x) + (b-y)
+// ═══════════════════════════════════════════════════════════════════
+
+/// (a+b).sub(x.add(y)).eqv(a.sub(x).add(b.sub(y)))
+proof fn lemma_add_sub_distribute<F: Ring>(a: F, b: F, x: F, y: F)
+    ensures
+        a.add(b).sub(x.add(y)).eqv(a.sub(x).add(b.sub(y))),
+{
+    // LHS: (a+b) - (x+y) ≡ (a+b) + (-(x+y))
+    F::axiom_sub_is_add_neg(a.add(b), x.add(y));
+    // -(x+y) ≡ (-x) + (-y)
+    additive_group_lemmas::lemma_neg_add::<F>(x, y);
+    // (a+b) + (-(x+y)) ≡ (a+b) + ((-x)+(-y))
+    additive_commutative_monoid_lemmas::lemma_add_congruence_right::<F>(
+        a.add(b), x.add(y).neg(), x.neg().add(y.neg()));
+    // Now have: (a+b)+(-(x+y)) ≡ (a+b)+((-x)+(-y))
+    // (a+b) + ((-x)+(-y)) — rearrange to (a+(-x)) + (b+(-y))
+    // Use associativity: ((a+b)+(-x))+(-y)
+    F::axiom_add_associative(a.add(b), x.neg(), y.neg());
+    // (a+b)+(-x) = a+(b+(-x))
+    F::axiom_add_associative(a, b, x.neg());
+    // b+(-x) = (-x)+b
+    F::axiom_add_commutative(b, x.neg());
+    // a+(b+(-x)) ≡ a+((-x)+b)
+    additive_commutative_monoid_lemmas::lemma_add_congruence_right::<F>(
+        a, b.add(x.neg()), x.neg().add(b));
+    // a+((-x)+b) = (a+(-x))+b
+    F::axiom_eqv_symmetric(a.add(x.neg().add(b)), a.add(x.neg()).add(b));
+    F::axiom_add_associative(a, x.neg(), b);
+    // Chain: (a+b)+(-x) ≡ a+(b+(-x)) ≡ a+((-x)+b) ≡ (a+(-x))+b
+    F::axiom_eqv_transitive(
+        a.add(b).add(x.neg()),
+        a.add(b.add(x.neg())),
+        a.add(x.neg().add(b)),
+    );
+    F::axiom_eqv_transitive(
+        a.add(b).add(x.neg()),
+        a.add(x.neg().add(b)),
+        a.add(x.neg()).add(b),
+    );
+    // So ((a+b)+(-x))+(-y) ≡ ((a+(-x))+b)+(-y)
+    F::axiom_add_congruence_left(
+        a.add(b).add(x.neg()), a.add(x.neg()).add(b), y.neg());
+    // ((a+(-x))+b)+(-y) = (a+(-x))+(b+(-y))
+    F::axiom_add_associative(a.add(x.neg()), b, y.neg());
+    F::axiom_eqv_transitive(
+        a.add(b).add(x.neg()).add(y.neg()),
+        a.add(x.neg()).add(b).add(y.neg()),
+        a.add(x.neg()).add(b.add(y.neg())),
+    );
+    // Chain full: (a+b)+((-x)+(-y)) ≡ ((a+b)+(-x))+(-y) ≡ (a+(-x))+(b+(-y))
+    F::axiom_eqv_symmetric(
+        a.add(b).add(x.neg().add(y.neg())),
+        a.add(b).add(x.neg()).add(y.neg()),
+    );
+    F::axiom_eqv_transitive(
+        a.add(b).add(x.neg().add(y.neg())),
+        a.add(b).add(x.neg()).add(y.neg()),
+        a.add(x.neg()).add(b.add(y.neg())),
+    );
+    // (a+b) - (x+y) ≡ (a+b) + ((-x)+(-y)) ≡ (a+(-x)) + (b+(-y))
+    F::axiom_eqv_transitive(
+        a.add(b).sub(x.add(y)),
+        a.add(b).add(x.add(y).neg()),
+        a.add(b).add(x.neg().add(y.neg())),
+    );
+    F::axiom_eqv_transitive(
+        a.add(b).sub(x.add(y)),
+        a.add(b).add(x.neg().add(y.neg())),
+        a.add(x.neg()).add(b.add(y.neg())),
+    );
+    // a+(-x) ≡ a-x
+    F::axiom_sub_is_add_neg(a, x);
+    F::axiom_eqv_symmetric(a.sub(x), a.add(x.neg()));
+    // b+(-y) ≡ b-y
+    F::axiom_sub_is_add_neg(b, y);
+    F::axiom_eqv_symmetric(b.sub(y), b.add(y.neg()));
+    // (a+(-x)) + (b+(-y)) ≡ (a-x) + (b-y)
+    additive_group_lemmas::lemma_add_congruence::<F>(
+        a.add(x.neg()), a.sub(x),
+        b.add(y.neg()), b.sub(y),
+    );
+    F::axiom_eqv_transitive(
+        a.add(b).sub(x.add(y)),
+        a.add(x.neg()).add(b.add(y.neg())),
+        a.sub(x).add(b.sub(y)),
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  Reduce step additivity
+// ═══════════════════════════════════════════════════════════════════
+
+/// reduce_step distributes over poly_add:
+/// reduce_step(h1+h2, p)[k] ≡ reduce_step(h1, p)[k] + reduce_step(h2, p)[k]
+proof fn lemma_reduce_step_additive<F: Ring>(
+    h1: Seq<F>, h2: Seq<F>, p_coeffs: Seq<F>,
+)
+    requires
+        p_coeffs.len() >= 2,
+        h1.len() == h2.len(),
+        h1.len() > p_coeffs.len(),
+    ensures
+        reduce_step(poly_add(h1, h2), p_coeffs).len() ==
+            reduce_step(h1, p_coeffs).len(),
+        forall|k: int| 0 <= k < reduce_step(h1, p_coeffs).len() as int ==>
+            (#[trigger] reduce_step(poly_add(h1, h2), p_coeffs)[k]).eqv(
+                reduce_step(h1, p_coeffs)[k].add(reduce_step(h2, p_coeffs)[k])),
+{
+    let h_sum = poly_add(h1, h2);
+    let n = p_coeffs.len();
+    let m = h1.len();
+    let shift = m - 1 - n;
+
+    let rs1 = reduce_step(h1, p_coeffs);
+    let rs2 = reduce_step(h2, p_coeffs);
+    let rs_sum = reduce_step(h_sum, p_coeffs);
+
+    // h_sum[m-1] = h1[m-1] + h2[m-1]
+    assert(h_sum[m as int - 1] == h1[m as int - 1].add(h2[m as int - 1]));
+
+    assert forall|k: int| 0 <= k < rs1.len() as int
+        implies (#[trigger] rs_sum[k]).eqv(rs1[k].add(rs2[k]))
+    by {
+        if shift as int <= k < shift + n as int {
+            // rs_sum[k] = h_sum[k] - h_sum[m-1]*p[k-shift]
+            //           = (h1[k]+h2[k]) - (h1[m-1]+h2[m-1])*p[k-shift]
+            // rs1[k]+rs2[k] = (h1[k]-h1[m-1]*p[k-shift]) + (h2[k]-h2[m-1]*p[k-shift])
+            //
+            // Need: (a+b) - (c+d)*e ≡ (a-c*e) + (b-d*e)
+            // where a=h1[k], b=h2[k], c=h1[m-1], d=h2[m-1], e=p[k-shift]
+            let a = h1[k];
+            let b = h2[k];
+            let c = h1[m as int - 1];
+            let d = h2[m as int - 1];
+            let e = p_coeffs[k - shift];
+
+            // (c+d)*e ≡ c*e + d*e
+            ring_lemmas::lemma_mul_distributes_right::<F>(c, d, e);
+
+            // (a+b) - (c+d)*e ≡ (a+b) - (c*e + d*e)
+            F::axiom_eqv_reflexive(a.add(b));
+            additive_group_lemmas::lemma_sub_congruence::<F>(
+                a.add(b), a.add(b),
+                c.add(d).mul(e), c.mul(e).add(d.mul(e)),
+            );
+
+            // (a+b) - (c*e + d*e) ≡ (a - c*e) + (b - d*e)
+            lemma_add_sub_distribute::<F>(a, b, c.mul(e), d.mul(e));
+
+            // Chain
+            F::axiom_eqv_transitive(
+                a.add(b).sub(c.add(d).mul(e)),
+                a.add(b).sub(c.mul(e).add(d.mul(e))),
+                a.sub(c.mul(e)).add(b.sub(d.mul(e))),
+            );
+        } else {
+            // rs_sum[k] = h_sum[k] = h1[k]+h2[k]
+            // rs1[k]+rs2[k] = h1[k]+h2[k]
+            F::axiom_eqv_reflexive(h1[k].add(h2[k]));
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -693,7 +1062,6 @@ pub proof fn lemma_conv_add_right<F: Ring>(
 }
 
 /// reduce_additive: poly_reduce distributes over polynomial addition.
-/// Deferred — requires showing reduce_step is linear.
 pub proof fn lemma_reduce_additive<F: Ring>(
     h1: Seq<F>, h2: Seq<F>, p_coeffs: Seq<F>,
 )
@@ -708,8 +1076,71 @@ pub proof fn lemma_reduce_additive<F: Ring>(
         forall|k: int| 0 <= k < p_coeffs.len() as int ==>
             (#[trigger] poly_reduce(poly_add(h1, h2), p_coeffs)[k]).eqv(
                 poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k])),
+    decreases h1.len(),
 {
-    assume(false);
+    let n = p_coeffs.len();
+    let h_sum = poly_add(h1, h2);
+
+    // Length lemmas
+    lemma_reduce_exact_length::<F>(h1, p_coeffs);
+    lemma_reduce_exact_length::<F>(h2, p_coeffs);
+    lemma_reduce_exact_length::<F>(h_sum, p_coeffs);
+
+    if h1.len() <= n {
+        // Base case: poly_reduce is identity
+        assert(poly_reduce(h1, p_coeffs) == h1);
+        assert(poly_reduce(h2, p_coeffs) == h2);
+        assert(poly_reduce(h_sum, p_coeffs) == h_sum);
+        assert forall|k: int| 0 <= k < n as int
+            implies (#[trigger] poly_reduce(h_sum, p_coeffs)[k]).eqv(
+                poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]))
+        by {
+            // h_sum[k] = h1[k] + h2[k] — reflexive
+            F::axiom_eqv_reflexive(h1[k].add(h2[k]));
+        }
+    } else {
+        // Inductive case
+        let rs1 = reduce_step(h1, p_coeffs);
+        let rs2 = reduce_step(h2, p_coeffs);
+        let rs_sum = reduce_step(h_sum, p_coeffs);
+
+        // reduce_step is additive: rs_sum[k] ≡ rs1[k] + rs2[k] = poly_add(rs1, rs2)[k]
+        lemma_reduce_step_additive::<F>(h1, h2, p_coeffs);
+
+        // poly_add(rs1, rs2)
+        let rs12 = poly_add(rs1, rs2);
+
+        // rs_sum is pointwise ≡ to rs12
+        assert forall|k: int| 0 <= k < rs_sum.len() as int
+            implies (#[trigger] rs_sum[k]).eqv(rs12[k])
+        by {
+            // rs12[k] = rs1[k] + rs2[k], and rs_sum[k] ≡ rs1[k] + rs2[k]
+            F::axiom_eqv_reflexive(rs12[k]);
+        }
+
+        // By reduce_congruence: poly_reduce(rs_sum) ≡ poly_reduce(rs12)
+        lemma_reduce_congruence::<F>(rs_sum, rs12, p_coeffs);
+
+        // By induction (rs1.len() == h1.len() - 1):
+        // poly_reduce(poly_add(rs1, rs2))[k] ≡ poly_reduce(rs1)[k] + poly_reduce(rs2)[k]
+        lemma_reduce_additive::<F>(rs1, rs2, p_coeffs);
+
+        // Chain: poly_reduce(h_sum)[k]
+        //   = poly_reduce(rs_sum)[k]         (by def of poly_reduce)
+        //   ≡ poly_reduce(rs12)[k]           (by reduce_congruence)
+        //   ≡ poly_reduce(rs1)[k] + poly_reduce(rs2)[k]  (by induction)
+        //   = poly_reduce(h1)[k] + poly_reduce(h2)[k]    (by def of poly_reduce)
+        assert forall|k: int| 0 <= k < n as int
+            implies (#[trigger] poly_reduce(h_sum, p_coeffs)[k]).eqv(
+                poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]))
+        by {
+            F::axiom_eqv_transitive(
+                poly_reduce(rs_sum, p_coeffs)[k],
+                poly_reduce(rs12, p_coeffs)[k],
+                poly_reduce(rs1, p_coeffs)[k].add(poly_reduce(rs2, p_coeffs)[k]),
+            );
+        }
+    }
 }
 
 /// mul_distributes_left: ext_mul(a, b+c, p) ≡ ext_mul(a, b, p) + ext_mul(a, c, p).
