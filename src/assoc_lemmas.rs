@@ -1531,6 +1531,8 @@ proof fn lemma_reduce_p_full_conv_zero_by_decomposition<F: Ring>(
     let raw = poly_mul_raw(pf, c);
     let r = poly_reduce(raw, p_coeffs);
 
+    // Establish that raw has sufficient length for reduction
+    fe_ring_lemmas::lemma_reduce_exact_length::<F>(raw, p_coeffs);
     assert(r.len() == n);
 
     // Since raw =~= sum_pf, their reductions are equivalent
@@ -1655,8 +1657,8 @@ proof fn lemma_reduce_p_full_conv_zero_sum_helper<F: Ring>(
         let term = poly_scalar_mul(c[j as int], poly_shift::<F>(pf, j));
         let rest = partial_p_full_sum(c, p_coeffs, (j + 1) as nat);
 
-        // sum_pf = term + rest
-        assert(sum_pf =~= poly_add(term, rest));
+        // sum_pf = term + rest (using poly_xgcd::poly_add for unequal lengths)
+        assert(sum_pf =~= crate::poly_xgcd::poly_add(term, rest));
 
         // Prove length facts for term and rest
         // term = c[j] * shift(p_full, j) has length (n+1) + j
@@ -1754,7 +1756,7 @@ spec fn partial_p_full_sum<F: Ring>(c: Seq<F>, p_coeffs: Seq<F>, j: nat) -> Seq<
         let pf = p_full_seq(p_coeffs);
         let term = poly_scalar_mul(c[j as int], poly_shift::<F>(pf, j));
         let rest = partial_p_full_sum(c, p_coeffs, (j + 1) as nat);
-        poly_add(term, rest)
+        crate::poly_xgcd::poly_add(term, rest)
     }
 }
 

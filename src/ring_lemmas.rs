@@ -799,14 +799,26 @@ pub proof fn lemma_reduce_congruence_unequal<F: Ring>(h1: Seq<F>, h2: Seq<F>, p_
     lemma_reduce_padding_invariant::<F>(h2, max_len as nat, p_coeffs);
 
     // Chain the equivalences
+    // We have:
+    //   1. poly_reduce(h1)[k] ≡ poly_reduce(h1_padded)[k]      (from padding_invariant)
+    //   2. poly_reduce(h1_padded)[k] ≡ poly_reduce(h2_padded)[k]  (from congruence)
+    //   3. poly_reduce(h2)[k] ≡ poly_reduce(h2_padded)[k]      (from padding_invariant)
+    //
+    // From 3, by symmetry: poly_reduce(h2_padded)[k] ≡ poly_reduce(h2)[k]
+    // Chain: poly_reduce(h1)[k] ≡ poly_reduce(h1_padded)[k] ≡ poly_reduce(h2_padded)[k] ≡ poly_reduce(h2)[k]
     assert forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int
         implies (#[trigger] poly_reduce(h1, p_coeffs)[k]).eqv(poly_reduce(h2, p_coeffs)[k])
     by {
+        // Step 1: h1 ≡ h1_padded (from padding_invariant)
+        // Step 2: h1_padded ≡ h2_padded (from congruence)
         F::axiom_eqv_transitive(
             poly_reduce(h1, p_coeffs)[k],
             poly_reduce(h1_padded, p_coeffs)[k],
             poly_reduce(h2_padded, p_coeffs)[k],
         );
+        // Step 3: Use symmetry on h2 ≡ h2_padded to get h2_padded ≡ h2
+        F::axiom_eqv_symmetric(poly_reduce(h2, p_coeffs)[k], poly_reduce(h2_padded, p_coeffs)[k]);
+        // Now chain: h1 ≡ h2_padded and h2_padded ≡ h2, so h1 ≡ h2
         F::axiom_eqv_transitive(
             poly_reduce(h1, p_coeffs)[k],
             poly_reduce(h2_padded, p_coeffs)[k],
@@ -1446,9 +1458,9 @@ pub proof fn lemma_reduce_additive_unequal<F: Ring>(
     ensures
         poly_reduce(h1, p_coeffs).len() == p_coeffs.len(),
         poly_reduce(h2, p_coeffs).len() == p_coeffs.len(),
-        poly_reduce(poly_add(h1, h2), p_coeffs).len() == p_coeffs.len(),
+        poly_reduce(crate::poly_xgcd::poly_add(h1, h2), p_coeffs).len() == p_coeffs.len(),
         forall|k: int| 0 <= k < p_coeffs.len() as int ==>
-            (#[trigger] poly_reduce(poly_add(h1, h2), p_coeffs)[k]).eqv(
+            (#[trigger] poly_reduce(crate::poly_xgcd::poly_add(h1, h2), p_coeffs)[k]).eqv(
                 poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k])),
 {
     let n = p_coeffs.len();
@@ -1533,30 +1545,68 @@ pub proof fn lemma_reduce_additive_unequal<F: Ring>(
     // Now use lemma_reduce_additive on padded sequences (they have equal lengths)
     lemma_reduce_additive::<F>(h1_padded, h2_padded, p_coeffs);
 
+    // Establish that all reductions have the correct length
+    lemma_reduce_exact_length::<F>(sum_direct, p_coeffs);
+    lemma_reduce_exact_length::<F>(sum_padded, p_coeffs);
+    lemma_reduce_exact_length::<F>(h1, p_coeffs);
+    lemma_reduce_exact_length::<F>(h2, p_coeffs);
+
     // Chain the equivalences
+    // We need to show: poly_reduce(sum_direct)[k] ≡ poly_reduce(h1)[k] + poly_reduce(h2)[k]
+    //
+    // We have established:
+    // 1. poly_reduce(sum_direct) ≡ poly_reduce(sum_padded)  [via congruence]
+    // 2. poly_reduce(sum_padded)[k] ≡ poly_reduce(h1_padded)[k] + poly_reduce(h2_padded)[k]  [via additive]
+    // 3. poly_reduce(h1_padded) ≡ poly_reduce(h1)  [via congruence_unequal]
+    // 4. poly_reduce(h2_padded) ≡ poly_reduce(h2)  [via congruence_unequal]
+    //
+    // The proof chains these facts using transitivity.
     assert forall|k: int| 0 <= k < n as int
         implies (#[trigger] poly_reduce(sum_direct, p_coeffs)[k]).eqv(
             poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]))
     by {
-        // poly_reduce(sum_direct)[k] ≡ poly_reduce(sum_padded)[k]  [congruence]
-        // poly_reduce(sum_padded)[k] ≡ poly_reduce(h1_padded)[k] + poly_reduce(h2_padded)[k]  [additive]
-        // poly_reduce(h1_padded)[k] ≡ poly_reduce(h1)[k]  [congruence]
-        // poly_reduce(h2_padded)[k] ≡ poly_reduce(h2)[k]  [congruence]
-        // Therefore: poly_reduce(sum_direct)[k] ≡ poly_reduce(h1)[k] + poly_reduce(h2)[k]
+        // First, establish that poly_reduce(sum_direct)[k] ≡ poly_reduce(sum_padded)[k]
+        // This follows from lemma_reduce_congruence(sum_direct, sum_padded)
+        // which requires: sum_direct.len() == sum_padded.len() && pointwise eqv
+        // We proved sum_direct[i] =~= sum_padded[i] for all i, so they're pointwise eqv
 
-        let lhs = poly_reduce(sum_direct, p_coeffs)[k];
-        let mid1 = poly_reduce(sum_padded, p_coeffs)[k];
-        let mid2 = poly_reduce(h1_padded, p_coeffs)[k].add(poly_reduce(h2_padded, p_coeffs)[k]);
-        let rhs = poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]);
+        // From lemma_reduce_additive(h1_padded, h2_padded):
+        // poly_reduce(sum_padded)[k] ≡ poly_reduce(h1_padded)[k] + poly_reduce(h2_padded)[k]
+        let mid_sum = poly_reduce(h1_padded, p_coeffs)[k].add(poly_reduce(h2_padded, p_coeffs)[k]);
 
-        F::axiom_eqv_transitive(lhs, mid1, mid2);
+        // Transitivity step 1: sum_direct ≡ sum_padded
+        // (The congruence lemma ensures poly_reduce(sum_direct)[k] ≡ poly_reduce(sum_padded)[k])
 
-        // Show mid2 ≡ rhs using add_congruence
+        // Transitivity step 2: sum_padded additive property
+        // poly_reduce(sum_padded)[k] ≡ poly_reduce(h1_padded)[k] + poly_reduce(h2_padded)[k]
+
+        // Now use add_congruence to show:
+        // poly_reduce(h1_padded)[k] + poly_reduce(h2_padded)[k] ≡ poly_reduce(h1)[k] + poly_reduce(h2)[k]
+        // This requires showing:
+        //   poly_reduce(h1_padded)[k] ≡ poly_reduce(h1)[k]
+        //   poly_reduce(h2_padded)[k] ≡ poly_reduce(h2)[k]
+        // These follow from lemma_reduce_congruence_unequal
+
+        // Use add_congruence
         additive_group_lemmas::lemma_add_congruence::<F>(
             poly_reduce(h1_padded, p_coeffs)[k], poly_reduce(h1, p_coeffs)[k],
             poly_reduce(h2_padded, p_coeffs)[k], poly_reduce(h2, p_coeffs)[k],
         );
-        F::axiom_eqv_transitive(lhs, mid2, rhs);
+
+        // Now chain everything with transitivity
+        // poly_reduce(sum_direct)[k] ≡ poly_reduce(sum_padded)[k]  [from congruence]
+        // poly_reduce(sum_padded)[k] ≡ mid_sum  [from additive]
+        // mid_sum ≡ poly_reduce(h1)[k] + poly_reduce(h2)[k]  [from add_congruence]
+        F::axiom_eqv_transitive(
+            poly_reduce(sum_direct, p_coeffs)[k],
+            poly_reduce(sum_padded, p_coeffs)[k],
+            mid_sum,
+        );
+        F::axiom_eqv_transitive(
+            poly_reduce(sum_direct, p_coeffs)[k],
+            mid_sum,
+            poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]),
+        );
     };
 }
 

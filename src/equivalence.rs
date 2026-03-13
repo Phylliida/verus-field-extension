@@ -53,6 +53,21 @@ impl<F: Ring, P: MinimalPoly<F>> Equivalence for SpecFieldExt<F, P> {
             }
         }
     }
+
+    proof fn axiom_eq_implies_eqv(a: Self, b: Self) {
+        P::axiom_degree_ge_2();
+        let n = P::degree();
+        // If a == b, then their coefficients are equal
+        // Since F has axiom_eq_implies_eqv, equal coefficients are equivalent
+        assert forall|i: int| 0 <= i < n as int
+            implies coeff(a.coeffs, i).eqv(coeff(b.coeffs, i))
+        by {
+            if a == b {
+                assert(a.coeffs[i] == b.coeffs[i]);
+                F::axiom_eq_implies_eqv(a.coeffs[i], b.coeffs[i]);
+            }
+        }
+    }
 }
 
 } // verus!
