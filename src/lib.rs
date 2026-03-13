@@ -5,6 +5,9 @@ pub mod minimal_poly;
 pub mod poly_arith;
 
 #[cfg(verus_keep_ghost)]
+pub mod poly_xgcd;
+
+#[cfg(verus_keep_ghost)]
 pub mod spec;
 
 #[cfg(verus_keep_ghost)]

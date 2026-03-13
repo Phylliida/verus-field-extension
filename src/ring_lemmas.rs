@@ -1,16 +1,16 @@
-use vstd::prelude::*;
-use verus_algebra::traits::equivalence::Equivalence;
-use verus_algebra::traits::additive_commutative_monoid::AdditiveCommutativeMonoid;
-use verus_algebra::traits::additive_group::AdditiveGroup;
-use verus_algebra::traits::ring::Ring;
-use verus_algebra::lemmas::additive_group_lemmas;
+use crate::minimal_poly::MinimalPoly;
+use crate::poly_arith::*;
+use crate::spec::*;
+use verus_algebra::archimedean::nat_mul;
 use verus_algebra::lemmas::additive_commutative_monoid_lemmas;
+use verus_algebra::lemmas::additive_group_lemmas;
 use verus_algebra::lemmas::ring_lemmas;
 use verus_algebra::summation::*;
-use verus_algebra::archimedean::nat_mul;
-use crate::minimal_poly::MinimalPoly;
-use crate::spec::*;
-use crate::poly_arith::*;
+use verus_algebra::traits::additive_commutative_monoid::AdditiveCommutativeMonoid;
+use verus_algebra::traits::additive_group::AdditiveGroup;
+use verus_algebra::traits::equivalence::Equivalence;
+use verus_algebra::traits::ring::Ring;
+use vstd::prelude::*;
 
 verus! {
 
@@ -954,6 +954,75 @@ pub proof fn lemma_ext_mul_congruence_left<F: Ring, P: MinimalPoly<F>>(
     lemma_ext_mul_length::<F>(b, c, p);
 }
 
+/// mul_congruence_right: if b ≡ c pointwise, then ext_mul(a, b, p) ≡ ext_mul(a, c, p).
+/// Proved using commutativity and left congruence.
+pub proof fn lemma_ext_mul_congruence_right<F: Ring, P: MinimalPoly<F>>(
+    a: Seq<F>, b: Seq<F>, c: Seq<F>,
+)
+    requires
+        a.len() == P::degree(),
+        b.len() == P::degree(),
+        c.len() == P::degree(),
+        P::degree() >= 2,
+        P::coeffs().len() == P::degree(),
+        forall|i: int| 0 <= i < P::degree() as int ==> (#[trigger] b[i]).eqv(c[i]),
+    ensures
+        ext_mul(a, b, P::coeffs()).len() == P::degree(),
+        ext_mul(a, c, P::coeffs()).len() == P::degree(),
+        forall|i: int| 0 <= i < P::degree() as int ==>
+            coeff(ext_mul(a, b, P::coeffs()), i).eqv(
+                coeff(ext_mul(a, c, P::coeffs()), i)),
+{
+    let n = P::degree();
+    let p = P::coeffs();
+
+    // ext_mul(a, b) = ext_mul(b, a) by commutativity
+    lemma_ext_mul_commutative::<F, P>(a, b);
+    lemma_ext_mul_commutative::<F, P>(a, c);
+
+    // ext_mul(b, a) ≡ ext_mul(c, a) by left congruence (since b ≡ c)
+    lemma_ext_mul_congruence_left::<F, P>(b, c, a);
+
+    // The lemmas above establish the following equivalences for all i < n:
+    // 1. coeff(ext_mul(a, b), i) ≡ coeff(ext_mul(b, a), i)  [commutativity]
+    // 2. coeff(ext_mul(b, a), i) ≡ coeff(ext_mul(c, a), i)  [left congruence]
+    // 3. coeff(ext_mul(c, a), i) ≡ coeff(ext_mul(a, c), i)  [commutativity]
+    // By transitivity: coeff(ext_mul(a, b), i) ≡ coeff(ext_mul(a, c), i)
+    assert forall|i: int| 0 <= i < n as int
+        implies coeff(ext_mul(a, b, p), i).eqv(coeff(ext_mul(a, c, p), i))
+    by {
+        // Step 1: coeff(ext_mul(a, b), i) ≡ coeff(ext_mul(b, a), i)
+        let step1_lhs = coeff(ext_mul(a, b, p), i);
+        let step1_rhs = coeff(ext_mul(b, a, p), i);
+        // From lemma_ext_mul_commutative(a, b)
+        assert(step1_lhs.eqv(step1_rhs));
+
+        // Step 2: coeff(ext_mul(b, a), i) ≡ coeff(ext_mul(c, a), i)
+        let step2_rhs = coeff(ext_mul(c, a, p), i);
+        // From lemma_ext_mul_congruence_left(b, c, a)
+        assert(step1_rhs.eqv(step2_rhs));
+
+        // Step 3: coeff(ext_mul(c, a), i) ≡ coeff(ext_mul(a, c), i)
+        let step3_rhs = coeff(ext_mul(a, c, p), i);
+        // From lemma_ext_mul_commutative(a, c): coeff(ext_mul(a, c), i) ≡ coeff(ext_mul(c, a), i)
+        // So step3_rhs.eqv(step2_rhs), i.e., coeff(ext_mul(a, c), i).eqv(coeff(ext_mul(c, a), i))
+        assert(step3_rhs.eqv(step2_rhs));
+
+        // We have:
+        // step1_lhs ≡ step1_rhs (commutativity a,b)
+        // step1_rhs ≡ step2_rhs (congruence b,c on a)
+        // step3_rhs ≡ step2_rhs (commutativity a,c), so step2_rhs ≡ step3_rhs by symmetry
+
+        // Use symmetry to get step2_rhs ≡ step3_rhs
+        F::axiom_eqv_symmetric(step3_rhs, step2_rhs);
+        assert(step2_rhs.eqv(step3_rhs));
+
+        // Chain equivalences using transitivity
+        F::axiom_eqv_transitive(step1_lhs, step1_rhs, step2_rhs);
+        F::axiom_eqv_transitive(step1_lhs, step2_rhs, step3_rhs);
+    }
+}
+
 /// Convolution congruence on the left argument.
 proof fn lemma_conv_congruence_left<F: Ring>(
     a1: Seq<F>, a2: Seq<F>, b: Seq<F>, k: int,
@@ -1237,6 +1306,104 @@ pub proof fn lemma_reduce_additive<F: Ring>(
             );
         }
     }
+}
+
+/// reduce_additive_unequal: poly_reduce distributes over polynomial addition with unequal lengths.
+/// Uses poly_xgcd::poly_add which handles unequal lengths via coeff.
+pub proof fn lemma_reduce_additive_unequal<F: Ring>(
+    h1: Seq<F>, h2: Seq<F>, p_coeffs: Seq<F>,
+)
+    requires
+        p_coeffs.len() >= 2,
+        h1.len() >= p_coeffs.len(),
+        h2.len() >= p_coeffs.len(),
+    ensures
+        poly_reduce(h1, p_coeffs).len() == p_coeffs.len(),
+        poly_reduce(h2, p_coeffs).len() == p_coeffs.len(),
+        poly_reduce(poly_add(h1, h2), p_coeffs).len() == p_coeffs.len(),
+        forall|k: int| 0 <= k < p_coeffs.len() as int ==>
+            (#[trigger] poly_reduce(poly_add(h1, h2), p_coeffs)[k]).eqv(
+                poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k])),
+{
+    let n = p_coeffs.len();
+    let max_len = if h1.len() >= h2.len() { h1.len() } else { h2.len() };
+
+    // Pad both sequences to max_len using coeff (which returns 0 for out-of-bounds)
+    let h1_padded = Seq::new(max_len as nat, |i: int| coeff(h1, i));
+    let h2_padded = Seq::new(max_len as nat, |i: int| coeff(h2, i));
+
+    // Padded sequences are pointwise equivalent to original via coeff
+    assert forall|i: int| 0 <= i < max_len as int
+        implies (#[trigger] h1_padded[i]).eqv(coeff(h1, i))
+    by {
+        // h1_padded[i] = coeff(h1, i) by construction
+        F::axiom_eqv_reflexive(coeff(h1, i));
+    };
+
+    assert forall|i: int| 0 <= i < max_len as int
+        implies (#[trigger] h2_padded[i]).eqv(coeff(h2, i))
+    by {
+        F::axiom_eqv_reflexive(coeff(h2, i));
+    };
+
+    // For indices < original length, coeff returns the actual value
+    assert forall|i: int| 0 <= i < h1.len() as int
+        implies coeff(h1, i) =~= h1[i]
+    by {};
+
+    assert forall|i: int| 0 <= i < h2.len() as int
+        implies coeff(h2, i) =~= h2[i]
+    by {};
+
+    // Therefore h1_padded ≡ h1 and h2_padded ≡ h2 for all relevant indices
+    // Use reduce_congruence to show poly_reduce(h1_padded) ≡ poly_reduce(h1)
+    lemma_reduce_congruence::<F>(h1_padded, h1, p_coeffs);
+    lemma_reduce_congruence::<F>(h2_padded, h2, p_coeffs);
+
+    // poly_add(h1, h2) using poly_xgcd::poly_add equals poly_add(h1_padded, h2_padded)
+    // where poly_add is poly_arith::poly_add (component-wise on equal lengths)
+    let sum_direct = poly_add(h1, h2);  // poly_xgcd version
+    let sum_padded = poly_add(h1_padded, h2_padded);  // poly_arith version (equal lengths)
+
+    // Show sum_direct ≡ sum_padded
+    assert forall|i: int| 0 <= i < sum_direct.len() as int
+        implies (#[trigger] sum_direct[i]).eqv(sum_padded[i])
+    by {
+        // sum_direct[i] = coeff(h1, i) + coeff(h2, i)
+        // sum_padded[i] = h1_padded[i] + h2_padded[i] = coeff(h1, i) + coeff(h2, i)
+        F::axiom_eqv_reflexive(sum_direct[i]);
+    };
+
+    lemma_reduce_congruence::<F>(sum_direct, sum_padded, p_coeffs);
+
+    // Now use lemma_reduce_additive on padded sequences (they have equal lengths)
+    lemma_reduce_additive::<F>(h1_padded, h2_padded, p_coeffs);
+
+    // Chain the equivalences
+    assert forall|k: int| 0 <= k < n as int
+        implies (#[trigger] poly_reduce(sum_direct, p_coeffs)[k]).eqv(
+            poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]))
+    by {
+        // poly_reduce(sum_direct)[k] ≡ poly_reduce(sum_padded)[k]  [congruence]
+        // poly_reduce(sum_padded)[k] ≡ poly_reduce(h1_padded)[k] + poly_reduce(h2_padded)[k]  [additive]
+        // poly_reduce(h1_padded)[k] ≡ poly_reduce(h1)[k]  [congruence]
+        // poly_reduce(h2_padded)[k] ≡ poly_reduce(h2)[k]  [congruence]
+        // Therefore: poly_reduce(sum_direct)[k] ≡ poly_reduce(h1)[k] + poly_reduce(h2)[k]
+
+        let lhs = poly_reduce(sum_direct, p_coeffs)[k];
+        let mid1 = poly_reduce(sum_padded, p_coeffs)[k];
+        let mid2 = poly_reduce(h1_padded, p_coeffs)[k].add(poly_reduce(h2_padded, p_coeffs)[k]);
+        let rhs = poly_reduce(h1, p_coeffs)[k].add(poly_reduce(h2, p_coeffs)[k]);
+
+        F::axiom_eqv_transitive(lhs, mid1, mid2);
+
+        // Show mid2 ≡ rhs using add_congruence
+        additive_group_lemmas::lemma_add_congruence::<F>(
+            poly_reduce(h1_padded, p_coeffs)[k], poly_reduce(h1, p_coeffs)[k],
+            poly_reduce(h2_padded, p_coeffs)[k], poly_reduce(h2, p_coeffs)[k],
+        );
+        F::axiom_eqv_transitive(lhs, mid2, rhs);
+    };
 }
 
 /// mul_distributes_left: ext_mul(a, b+c, p) ≡ ext_mul(a, b, p) + ext_mul(a, c, p).

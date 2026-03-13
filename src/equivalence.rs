@@ -1,9 +1,9 @@
-use vstd::prelude::*;
+use crate::minimal_poly::MinimalPoly;
+use crate::poly_arith::*;
+use crate::spec::*;
 use verus_algebra::traits::equivalence::Equivalence;
 use verus_algebra::traits::ring::Ring;
-use crate::minimal_poly::MinimalPoly;
-use crate::spec::*;
-use crate::poly_arith::*;
+use vstd::prelude::*;
 
 verus! {
 
