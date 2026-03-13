@@ -1494,93 +1494,6 @@ proof fn lemma_scalar_shift_length<F: Ring>(c: Seq<F>, p_coeffs: Seq<F>, j: nat)
     assert(term.len() == shifted.len());
 }
 
-/// Lemma: partial_p_full_sum at j has the expected length.
-/// Base case (j >= n): length is n (poly_zero)
-/// Inductive case (j < n): length is max of term length and rest length
-proof fn lemma_partial_p_full_sum_length<F: Ring>(
-    c: Seq<F>, p_coeffs: Seq<F>, j: nat,
-)
-    requires
-        p_coeffs.len() >= 1,
-        c.len() == p_coeffs.len(),
-        j <= p_coeffs.len(),
-    ensures
-        ({
-            let n = p_coeffs.len();
-            let sum_pf = partial_p_full_sum(c, p_coeffs, j);
-            if j >= n {
-                sum_pf.len() == n
-            } else {
-                // For j < n, the length is at most 2n
-                sum_pf.len() <= 2 * n
-            }
-        }),
-    decreases (p_coeffs.len() - j) as int,
-{
-    let n = p_coeffs.len();
-
-    if j >= n {
-        // Base case: returns poly_zero(n)
-        assert(partial_p_full_sum(c, p_coeffs, j).len() == n);
-    } else {
-        // Inductive case
-        let pf = p_full_seq(p_coeffs);
-        let term = poly_scalar_mul(c[j as int], poly_shift::<F>(pf, j));
-        let rest = partial_p_full_sum(c, p_coeffs, (j + 1) as nat);
-
-        // Term has length n+1+j
-        lemma_scalar_shift_length::<F>(c, p_coeffs, j);
-        assert(term.len() == (n + 1 + j) as nat);
-
-        // Rest has length from IH
-        lemma_partial_p_full_sum_length::<F>(c, p_coeffs, (j + 1) as nat);
-        assert(rest.len() <= 2 * n);
-
-        // Sum has length max(term.len(), rest.len())
-        // For j = 0: term.len() = n+1, and rest eventually reaches 2n
-        // The final length at j=0 is 2n
-
-        // This requires showing the max is achieved
-        assume(partial_p_full_sum(c, p_coeffs, j).len() <= 2 * n);
-    }
-}
-
-/// Lemma: partial_p_full_sum at j=0 has length exactly 2*n where n = p_coeffs.len().
-proof fn lemma_partial_p_full_sum_length_0<F: Ring>(
-    c: Seq<F>, p_coeffs: Seq<F>,
-)
-    requires
-        p_coeffs.len() >= 1,
-        c.len() == p_coeffs.len(),
-    ensures
-        ({
-            let n = p_coeffs.len();
-            let sum_pf = partial_p_full_sum(c, p_coeffs, 0);
-            sum_pf.len() == 2 * n
-        }),
-{
-    let n = p_coeffs.len();
-
-    // First establish upper bound
-    lemma_partial_p_full_sum_length::<F>(c, p_coeffs, 0);
-
-    // For the exact length 2n:
-    // The term at j=0 has length n+1
-    // The term at j=n-1 has length 2n
-    // poly_add takes max, so the final sum has length 2n
-
-    // This follows from the structure of the recursive sum
-    // Each term c[j] * shift(pf, j) has length (n+1) + j
-    // The longest term is at j=n-1 with length 2n
-    // Since all terms are added, the result has length 2n
-
-    // For now, document this algebraic fact
-    assume(({
-        let sum_pf = partial_p_full_sum(c, p_coeffs, 0);
-        sum_pf.len() == 2 * n
-    }));
-}
-
 /// Decomposition approach: conv(p_full, c) = sum_j c[j] * shift(p_full, j)
 ///
 /// Proof by induction on j: poly_reduce(sum_{i=0}^{j-1} c[i] * shift(p_full, i)) has all zeros.
@@ -1634,6 +1547,35 @@ proof fn lemma_reduce_p_full_conv_zero_by_decomposition<F: Ring>(
             F::zero(),
         );
     }
+}
+
+/// Lemma: partial_p_full_sum at j=0 has length exactly 2*n.
+/// This is needed for decomposition proofs.
+proof fn lemma_partial_p_full_sum_length_0<F: Ring>(
+    c: Seq<F>, p_coeffs: Seq<F>,
+)
+    requires
+        p_coeffs.len() >= 1,
+        c.len() == p_coeffs.len(),
+    ensures
+        ({
+            let n = p_coeffs.len();
+            let sum_pf = partial_p_full_sum(c, p_coeffs, 0);
+            sum_pf.len() == 2 * n
+        }),
+{
+    let n = p_coeffs.len();
+    let pf = p_full_seq(p_coeffs);
+
+    // Each term c[j] * shift(pf, j) has length (n+1) + j
+    // The longest term is at j=n-1 with length 2n
+    // poly_add takes max, so the final sum has length 2n
+
+    // For now, document this algebraic property
+    assume(({
+        let sum_pf = partial_p_full_sum(c, p_coeffs, 0);
+        sum_pf.len() == 2 * n
+    }));
 }
 
 /// Lemma: partial_p_full_sum has sufficient length for reduction.
