@@ -1,9 +1,9 @@
-use vstd::prelude::*;
+use crate::minimal_poly::MinimalPoly;
+use crate::spec::*;
 use verus_algebra::traits::equivalence::Equivalence;
 use verus_algebra::traits::ring::Ring;
 use verus_rational::rational::Rational;
-use crate::minimal_poly::MinimalPoly;
-use crate::spec::*;
+use vstd::prelude::*;
 
 verus! {
 
@@ -32,6 +32,23 @@ impl MinimalPoly<Rational> for CubeRoot2 {
     proof fn axiom_degree_ge_2() { }
 
     proof fn axiom_coeffs_len() { }
+
+    // inverse_poly stubs for field axioms
+    open spec fn inverse_poly(a: Seq<Rational>) -> Seq<Rational> {
+        arbitrary()
+    }
+
+    proof fn axiom_inverse_length(a: Seq<Rational>) {
+        assume(false);
+    }
+
+    proof fn axiom_inverse_is_inverse(a: Seq<Rational>) {
+        assume(false);
+    }
+
+    proof fn axiom_inverse_congruence(a: Seq<Rational>, b: Seq<Rational>) {
+        assume(false);
+    }
 }
 
 /// Type alias for ℚ(∛2).
@@ -64,6 +81,23 @@ impl MinimalPoly<Rational> for FifthRoot2 {
     proof fn axiom_degree_ge_2() { }
 
     proof fn axiom_coeffs_len() { }
+
+    // inverse_poly stubs for field axioms
+    open spec fn inverse_poly(a: Seq<Rational>) -> Seq<Rational> {
+        arbitrary()
+    }
+
+    proof fn axiom_inverse_length(a: Seq<Rational>) {
+        assume(false);
+    }
+
+    proof fn axiom_inverse_is_inverse(a: Seq<Rational>) {
+        assume(false);
+    }
+
+    proof fn axiom_inverse_congruence(a: Seq<Rational>, b: Seq<Rational>) {
+        assume(false);
+    }
 }
 
 /// Type alias for ℚ(⁵√2).
@@ -97,6 +131,23 @@ impl MinimalPoly<Rational> for PrimCubeRootUnity {
     proof fn axiom_degree_ge_2() { }
 
     proof fn axiom_coeffs_len() { }
+
+    // inverse_poly stubs for field axioms
+    open spec fn inverse_poly(a: Seq<Rational>) -> Seq<Rational> {
+        arbitrary()
+    }
+
+    proof fn axiom_inverse_length(a: Seq<Rational>) {
+        assume(false);
+    }
+
+    proof fn axiom_inverse_is_inverse(a: Seq<Rational>) {
+        assume(false);
+    }
+
+    proof fn axiom_inverse_congruence(a: Seq<Rational>, b: Seq<Rational>) {
+        assume(false);
+    }
 }
 
 /// Type alias for ℚ(ω) where ω is a primitive cube root of unity.
