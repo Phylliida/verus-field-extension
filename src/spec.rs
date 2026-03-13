@@ -1,10 +1,10 @@
-use vstd::prelude::*;
-use verus_algebra::traits::equivalence::Equivalence;
-use verus_algebra::traits::additive_commutative_monoid::AdditiveCommutativeMonoid;
-use verus_algebra::traits::additive_group::AdditiveGroup;
-use verus_algebra::traits::ring::Ring;
 use crate::minimal_poly::MinimalPoly;
 use crate::poly_arith::*;
+use verus_algebra::traits::additive_commutative_monoid::AdditiveCommutativeMonoid;
+use verus_algebra::traits::additive_group::AdditiveGroup;
+use verus_algebra::traits::equivalence::Equivalence;
+use verus_algebra::traits::ring::Ring;
+use vstd::prelude::*;
 
 verus! {
 

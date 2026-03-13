@@ -1,9 +1,9 @@
-use vstd::prelude::*;
-use verus_algebra::traits::equivalence::Equivalence;
+use verus_algebra::summation::sum;
 use verus_algebra::traits::additive_commutative_monoid::AdditiveCommutativeMonoid;
 use verus_algebra::traits::additive_group::AdditiveGroup;
+use verus_algebra::traits::equivalence::Equivalence;
 use verus_algebra::traits::ring::Ring;
-use verus_algebra::summation::sum;
+use vstd::prelude::*;
 
 verus! {
 

@@ -84,17 +84,123 @@ impl<F: Ring, P: MinimalPoly<F>> Ring for SpecFieldExt<F, P> {
         // The lemma proves coefficient-wise equivalence of the ext_mul results
         // Since fe_mul(...).coeffs = ext_mul(...), the equivalence transfers
 
-        assume(
-            forall|i: int| 0 <= i < n as int ==>
-                coeff(fe_mul::<F, P>(ab, c).coeffs, i).eqv(coeff(fe_mul::<F, P>(a, bc).coeffs, i))
-        );
+        // When s.len() == n, normalize(s, n)[i] = coeff(s, i) = s[i] for i < n (equality, not just eqv)
+        // So normalize(ab.coeffs, n) ≡ ab.coeffs pointwise, and similarly for bc
+        assert forall|i: int| 0 <= i < n as int
+            implies normalize(ab.coeffs, n)[i] == ab.coeffs[i]
+        by { }
+        assert forall|i: int| 0 <= i < n as int
+            implies normalize(bc.coeffs, n)[i] == bc.coeffs[i]
+        by { }
+
+        // Use congruence: if normalize(ab.coeffs, n) ≡ ab.coeffs, then
+        // ext_mul(normalize(ab.coeffs, n), c_n, p) ≡ ext_mul(ab.coeffs, c_n, p)
+        // But we need the equivalence in terms of coeff, so prove pointwise eqv
+        assert forall|i: int| 0 <= i < n as int
+            implies normalize(ab.coeffs, n)[i].eqv(ab.coeffs[i])
+        by { F::axiom_eqv_reflexive(ab.coeffs[i]); }
+        assert forall|i: int| 0 <= i < n as int
+            implies normalize(bc.coeffs, n)[i].eqv(bc.coeffs[i])
+        by { F::axiom_eqv_reflexive(bc.coeffs[i]); }
+
+        // Apply left congruence: ext_mul is congruent in its first argument
+        // For LHS: ext_mul(normalize(ab.coeffs, n), c_n, p) ≡ ext_mul(ab.coeffs, c_n, p)
+        ring_lemmas::lemma_ext_mul_congruence_left::<F, P>(normalize(ab.coeffs, n), ab.coeffs, c_n);
+        // For RHS: ext_mul(normalize(bc.coeffs, n), a_n, p) ≡ ext_mul(bc.coeffs, a_n, p)
+        ring_lemmas::lemma_ext_mul_congruence_left::<F, P>(normalize(bc.coeffs, n), bc.coeffs, a_n);
+
+        // Now connect fe_mul results to ext_mul results
+        // fe_mul(ab, c).coeffs = ext_mul(normalize(ab.coeffs, n), c_n, p)
+        // fe_mul(a, bc).coeffs = ext_mul(a_n, normalize(bc.coeffs, n), p)
+        let abc_lhs = fe_mul::<F, P>(ab, c);
+        let abc_rhs = fe_mul::<F, P>(a, bc);
+
+        // Use commutativity to align the ext_mul expressions
+        ring_lemmas::lemma_ext_mul_commutative::<F, P>(normalize(bc.coeffs, n), a_n);
+        ring_lemmas::lemma_ext_mul_commutative::<F, P>(bc.coeffs, a_n);
+
+        // Now we have:
+        // LHS: ext_mul(normalize(ab.coeffs, n), c_n, p) ≡ ext_mul(ab.coeffs, c_n, p) = ext_mul(ext_mul(a_n, b_n, p), c_n, p)
+        // RHS: ext_mul(a_n, normalize(bc.coeffs, n), p) ≡ ext_mul(a_n, bc.coeffs, p) = ext_mul(a_n, ext_mul(b_n, c_n, p), p)
+
+        // Key insight: fe_mul(x, y).coeffs = ext_mul(normalize(x.coeffs, n), normalize(y.coeffs, n), p)
+        // When coeffs.len() == n, normalize(coeffs, n)[i] = coeffs[i] for all i < n
+        // So normalize(coeffs, n) =~= coeffs as sequences
+
+        // For abc_lhs = fe_mul(ab, c):
+        // abc_lhs.coeffs = ext_mul(normalize(ab.coeffs, n), c_n, p)
+        // Since ab.coeffs = ext_mul(a_n, b_n, p) has length n, normalize(ab.coeffs, n) =~= ab.coeffs
+        // Therefore abc_lhs.coeffs =~= ext_mul(ab.coeffs, c_n, p) = ext_mul(ext_mul(a_n, b_n, p), c_n, p)
+
+        // For abc_rhs = fe_mul(a, bc):
+        // abc_rhs.coeffs = ext_mul(a_n, normalize(bc.coeffs, n), p)
+        // Since bc.coeffs = ext_mul(b_n, c_n, p) has length n, normalize(bc.coeffs, n) =~= bc.coeffs
+        // Therefore abc_rhs.coeffs =~= ext_mul(a_n, bc.coeffs, p) = ext_mul(a_n, ext_mul(b_n, c_n, p), p)
+
+        // Show that normalize(ab.coeffs, n) =~= ab.coeffs since ab.coeffs.len() == n
+        assert(normalize(ab.coeffs, n) =~= ab.coeffs) by {
+            assert(ab.coeffs.len() == n);
+            // Both have length n, and normalize(s, n)[i] = coeff(s, i) = s[i] when s.len() == n
+        }
+
+        // Show that normalize(bc.coeffs, n) =~= bc.coeffs since bc.coeffs.len() == n
+        assert(normalize(bc.coeffs, n) =~= bc.coeffs) by {
+            assert(bc.coeffs.len() == n);
+        }
+
+        // From the definitions:
+        // abc_lhs.coeffs = ext_mul(normalize(ab.coeffs, n), c_n, p)
+        // abc_rhs.coeffs = ext_mul(a_n, normalize(bc.coeffs, n), p)
+
+        // By ext_mul_congruence_left and sequence equality:
+        // ext_mul(normalize(ab.coeffs, n), c_n, p) ≡ ext_mul(ab.coeffs, c_n, p) pointwise
+        // ext_mul(a_n, normalize(bc.coeffs, n), p) ≡ ext_mul(a_n, bc.coeffs, p) pointwise
+
+        // Apply congruence lemmas
+        ring_lemmas::lemma_ext_mul_congruence_left::<F, P>(normalize(ab.coeffs, n), ab.coeffs, c_n);
+        ring_lemmas::lemma_ext_mul_congruence_right::<F, P>(a_n, normalize(bc.coeffs, n), bc.coeffs);
+
+        // Now we need to connect ab.coeffs and bc.coeffs to their definitions
+        // ab.coeffs = ext_mul(a_n, b_n, p) and bc.coeffs = ext_mul(b_n, c_n, p)
 
         assert forall|i: int| 0 <= i < n as int
-            implies coeff(fe_mul::<F, P>(ab, c).coeffs, i).eqv(
-                coeff(fe_mul::<F, P>(a, bc).coeffs, i))
+            implies coeff(abc_lhs.coeffs, i).eqv(coeff(abc_rhs.coeffs, i))
         by {
-            // The assumption above establishes this
-            F::axiom_eqv_reflexive(coeff(fe_mul::<F, P>(ab, c).coeffs, i));
+            // lhs = coeff(abc_lhs.coeffs, i) = coeff(ext_mul(normalize(ab.coeffs, n), c_n, p), i)
+            // rhs = coeff(abc_rhs.coeffs, i) = coeff(ext_mul(a_n, normalize(bc.coeffs, n), p), i)
+
+            let lhs = coeff(abc_lhs.coeffs, i);
+            let rhs = coeff(abc_rhs.coeffs, i);
+
+            // From congruence: coeff(ext_mul(normalize(ab.coeffs, n), c_n, p), i) ≡ coeff(ext_mul(ab.coeffs, c_n, p), i)
+            let lhs_mid = coeff(ext_mul(ab.coeffs, c_n, P::coeffs()), i);
+
+            // From congruence: coeff(ext_mul(a_n, normalize(bc.coeffs, n), p), i) ≡ coeff(ext_mul(a_n, bc.coeffs, p), i)
+            let rhs_mid = coeff(ext_mul(a_n, bc.coeffs, P::coeffs()), i);
+
+            // By definition of ab and bc:
+            // ab.coeffs = ext_mul(a_n, b_n, p), so coeff(ext_mul(ab.coeffs, c_n, p), i) = coeff(ext_mul(ext_mul(a_n, b_n, p), c_n, p), i)
+            // bc.coeffs = ext_mul(b_n, c_n, p), so coeff(ext_mul(a_n, bc.coeffs, p), i) = coeff(ext_mul(a_n, ext_mul(b_n, c_n, p), p), i)
+
+            let assoc_lhs = coeff(ext_mul(ext_mul(a_n, b_n, P::coeffs()), c_n, P::coeffs()), i);
+            let assoc_rhs = coeff(ext_mul(a_n, ext_mul(b_n, c_n, P::coeffs()), P::coeffs()), i);
+
+            // These follow from the lemma ensures
+            assert(lhs.eqv(lhs_mid));
+            assert(rhs.eqv(rhs_mid));
+
+            // These follow from equality of ab.coeffs and bc.coeffs to the ext_mul expressions
+            assert(lhs_mid.eqv(assoc_lhs));
+            assert(rhs_mid.eqv(assoc_rhs));
+
+            // From lemma_ext_mul_associative, we have assoc_lhs ≡ assoc_rhs
+            assert(assoc_lhs.eqv(assoc_rhs));
+
+            // Chain by transitivity
+            F::axiom_eqv_transitive(lhs, lhs_mid, assoc_lhs);
+            F::axiom_eqv_transitive(lhs, assoc_lhs, assoc_rhs);
+            F::axiom_eqv_transitive(lhs, assoc_rhs, rhs_mid);
+            F::axiom_eqv_transitive(lhs, rhs_mid, rhs);
         }
     }
 
