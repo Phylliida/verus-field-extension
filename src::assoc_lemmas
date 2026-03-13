@@ -1,0 +1,4 @@
+   Compiling verus-field-extension v0.1.0 (/Users/yams/Prog/verus-cad/verus-field-extension)
+error: multiple input filenames provided (first two filenames are `src/lib.rs` and `silent`)
+
+error: could not compile `verus-field-extension` (lib) due to 1 previous error
