@@ -912,61 +912,6 @@ pub proof fn lemma_ext_mul_length<F: Ring>(a: Seq<F>, b: Seq<F>, p_coeffs: Seq<F
     lemma_reduce_exact_length::<F>(raw, p_coeffs);
 }
 
-/// Helper: XGCD inverse modulo p_full implies field extension inverse.
-/// If inv_full is the XGCD inverse of a modulo p_full = [p_coeffs, 1],
-/// then truncate(inv_full, n) is the inverse of a in the field extension F[x]/(p(x)).
-///
-/// This connects the polynomial XGCD algorithm with field extension arithmetic.
-pub proof fn lemma_xgcd_inverse_implies_field_inverse<F: Field>(
-    a: Seq<F>,
-    inv_full: Seq<F>,
-    p_coeffs: Seq<F>,
-    p_full: Seq<F>,
-)
-    requires
-        p_coeffs.len() >= 2,
-        p_full.len() == p_coeffs.len() + 1,
-        a.len() == p_coeffs.len(),
-        inv_full.len() == p_full.len(),
-        // inv_full is the XGCD inverse: inv_full * a ≡ 1 (mod p_full)
-        poly_eqv(
-            ext_mul(inv_full, a, p_full),
-            poly_one::<F>(p_full.len() as nat),
-        ),
-        // p_full is monic with leading coefficient 1
-        p_full[p_full.len() as int - 1].eqv(F::one()),
-    ensures
-        // truncate(inv_full) is the field extension inverse
-        poly_eqv(
-            ext_mul(poly_truncate(inv_full, p_coeffs.len() as nat), a, p_coeffs),
-            poly_one::<F>(p_coeffs.len() as nat),
-        ),
-{
-    let n = p_coeffs.len();
-    let inv_trunc = poly_truncate(inv_full, n as nat);
-
-    // Key insight:
-    // 1. ext_mul(inv_full, a, p_full) reduces modulo p_full
-    // 2. ext_mul(inv_trunc, a, p_coeffs) reduces modulo p_coeffs (field extension mult)
-    // 3. Both should give poly_one(n) for the first n coefficients
-    //
-    // The XGCD ensures inv_full * a = 1 + t*p_full for some t
-    // Reducing: inv_full * a ≡ 1 (mod p_full)
-    //
-    // For the truncated version:
-    // inv_trunc * a ≡ 1 (mod p_coeffs) in the field extension
-    //
-    // This is because the reduction modulo p_full and field extension arithmetic
-    // produce equivalent results for the first n coefficients.
-    //
-    // A full proof would show that truncation preserves the inverse property
-    // by analyzing how reduction works with p_full vs p_coeffs.
-    assume(poly_eqv(
-        ext_mul(inv_trunc, a, p_coeffs),
-        poly_one::<F>(n as nat),
-    ));
-}
-
 // ═══════════════════════════════════════════════════════════════════
 //  Top-level lemmas for Ring axioms
 // ═══════════════════════════════════════════════════════════════════
