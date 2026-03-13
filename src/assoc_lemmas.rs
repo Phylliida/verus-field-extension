@@ -933,7 +933,9 @@ proof fn lemma_conv_raw_associative<F: Ring>(
     // This follows from lemma_sum_reindex with shift = -i
     // For simplicity, we defer this step as it requires complex quantifier reasoning
     // involving the reindexed sum over variable ranges.
-    assume(true);
+    // TODO: Complete this proof using lemma_sum_reindex
+    // lemma_sum_reindex::<F>(
+    //     |j: int| coeff(b, j - i).mul(coeff(c, k - j)),
     //     0, raw_ab.len() as int,
     //     -i
     // );
@@ -965,8 +967,7 @@ proof fn lemma_conv_raw_associative<F: Ring>(
     // - For l < 0: coeff(b, l) = 0
     // - For l >= n_b: coeff(b, l) = 0
     // So only l in [0, n_b-1] contribute.
-    // For simplicity, we assume this equivalence
-    assume(true);
+    // TODO: Prove this equivalence using the zero properties of coeff
 
     // Step 6: Put it all together
     // LHS ≡ sum_i a[i] * conv_coeff(b, c, k-i)
