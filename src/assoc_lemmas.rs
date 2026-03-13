@@ -539,7 +539,7 @@ proof fn lemma_poly_mul_raw_index<F: Ring>(
     F::axiom_eqv_reflexive(conv_coeff(a, b, k));
 }
 
-/// Helper: conv_coeff(a, b, k) = sum_i a[i] * coeff(b, k-i)
+/// Helper: conv_coeff(a, b, k) = sum_i coeff(a, i) * coeff(b, k-i)
 /// This is true by definition, but we need to establish equivalence.
 proof fn lemma_conv_coeff_expand<F: Ring>(
     a: Seq<F>,
@@ -555,6 +555,166 @@ proof fn lemma_conv_coeff_expand<F: Ring>(
     // By definition: conv_coeff(a, b, k) = sum(|i| coeff(a, i) * coeff(b, k-i), 0, a.len())
     assert(conv_coeff(a, b, k) =~= sum::<F>(|i: int| coeff(a, i).mul(coeff(b, k - i)), 0, a.len() as int));
     F::axiom_eqv_reflexive(sum::<F>(|i: int| coeff(a, i).mul(coeff(b, k - i)), 0, a.len() as int));
+}
+
+/// Helper: raw_ab[j] * c[k-j] ≡ sum_i (a[i]*coeff(b,j-i))*c[k-j]
+/// This is the key distributivity step for convolution associativity.
+proof fn lemma_conv_distributivity_step<F: Ring>(
+    a: Seq<F>,
+    b: Seq<F>,
+    c: Seq<F>,
+    j: int,
+    k: int,
+)
+    requires
+        a.len() >= 2,
+        b.len() >= 2,
+        c.len() >= 2,
+        0 <= j < (a.len() + b.len() - 1) as int,
+    ensures
+        poly_mul_raw(a, b)[j].mul(coeff(c, k - j)).eqv(
+            sum::<F>(|i: int| (a[i].mul(coeff(b, j - i))).mul(coeff(c, k - j)), 0, a.len() as int)
+        ),
+{
+    // Step 1: raw_ab[j] ≡ conv_coeff(a, b, j) via lemma_poly_mul_raw_index
+    lemma_poly_mul_raw_index::<F>(a, b, j);
+
+    // Step 2: conv_coeff(a, b, j) ≡ sum_i a[i] * coeff(b, j-i) via lemma_conv_coeff_expand_direct
+    lemma_conv_coeff_expand_direct::<F>(a, b, j);
+
+    // Define f(i) = a[i] * coeff(b, j-i)
+    let f = |i: int| a[i].mul(coeff(b, j - i));
+    let c_kj = coeff(c, k - j);
+
+    // Chain the equivalences
+    let raw_j = poly_mul_raw(a, b)[j];
+    let conv_j = conv_coeff(a, b, j);
+    let sum_f = sum::<F>(f, 0, a.len() as int);
+
+    // Step 2a: raw_j ≡ conv_j (from lemma_poly_mul_raw_index)
+    // The lemma ensures: poly_mul_raw(a,b)[j] ≡ conv_coeff(a,b,j)
+    // which is exactly: raw_j ≡ conv_j
+    assert(raw_j.eqv(conv_j));
+
+    // Step 2b: conv_j ≡ sum_f (from lemma_conv_coeff_expand_direct)
+    // The lemma ensures: conv_coeff(a,b,j) ≡ sum_i a[i]*coeff(b,j-i)
+    // which is exactly: conv_j ≡ sum_f
+    assert(conv_j.eqv(sum_f));
+
+    // Step 2c: Chain: raw_j ≡ conv_j ≡ sum_f
+    F::axiom_eqv_transitive(raw_j, conv_j, sum_f);
+    assert(raw_j.eqv(sum_f));
+
+    // Step 2d: Use mul_congruence: raw_j ≡ sum_f implies raw_j*c_kj ≡ sum_f*c_kj
+    F::axiom_mul_congruence_left(raw_j, sum_f, c_kj);
+    assert(raw_j.mul(c_kj).eqv(sum_f.mul(c_kj)));
+
+    // Step 3: Prove sum_scale_right: (sum_i f(i)) * c_kj ≡ sum_i (f(i) * c_kj)
+    // Proof: sum(f) * c_kj ≡ c_kj * sum(f) by mul_commutative
+    //                     ≡ sum(c_kj * f) by sum_scale
+    //                     ≡ sum(f * c_kj) by pointwise mul_commutative
+
+    // Step 3a: sum(f) * c_kj ≡ c_kj * sum(f) by mul_commutative
+    F::axiom_mul_commutative(sum_f, c_kj);
+
+    // Step 3b: c_kj * sum(f) ≡ sum(c_kj * f) by sum_scale
+    lemma_sum_scale::<F>(c_kj, f, 0, a.len() as int);
+
+    // Step 3c: sum(c_kj * f) ≡ sum(f * c_kj) by pointwise mul_commutative
+    let g = |i: int| c_kj.mul(f(i));
+    let h = |i: int| f(i).mul(c_kj);
+
+    assert forall|i: int| 0 <= i < a.len() as int implies (#[trigger] g(i)).eqv(h(i))
+    by {
+        F::axiom_mul_commutative(c_kj, f(i));
+    };
+    lemma_sum_congruence::<F>(g, h, 0, a.len() as int);
+
+    // Step 3d: Chain the equivalences
+    let step1 = sum_f.mul(c_kj);
+    let step2 = c_kj.mul(sum_f);
+    let step3 = sum::<F>(g, 0, a.len() as int);
+
+    // Use the explicit closure expression directly to avoid closure equality issues
+    let final_sum = sum::<F>(|i: int| (a[i].mul(coeff(b, j - i))).mul(c_kj), 0, a.len() as int);
+
+    assert(step1.eqv(step2));  // By mul_commutative
+
+    // lemma_sum_scale gives: sum(k * f) ≡ k * sum(f), i.e., step3 ≡ step2
+    // We need step2 ≡ step3, so use symmetry
+    assert(step3.eqv(step2));  // By sum_scale
+    F::axiom_eqv_symmetric(step3, step2);
+    assert(step2.eqv(step3));
+
+    // step3 = sum(g) = sum(|i| c_kj * f(i)) = sum(|i| c_kj * (a[i]*coeff(b,j-i)))
+    // We need step3 ≡ final_sum where final_sum = sum(|i| (a[i]*coeff(b,j-i)) * c_kj)
+    // These are equivalent by pointwise mul_commutative
+    assert forall|i: int| 0 <= i < a.len() as int implies
+        (#[trigger] g(i)).eqv((a[i].mul(coeff(b, j - i))).mul(c_kj))
+    by {
+        // g(i) = c_kj * f(i) = c_kj * (a[i] * coeff(b, j-i))
+        // We want: c_kj * (a[i] * coeff(b, j-i)) ≡ (a[i] * coeff(b, j-i)) * c_kj
+        F::axiom_mul_commutative(c_kj, a[i].mul(coeff(b, j - i)));
+    };
+
+    lemma_sum_congruence::<F>(
+        g,
+        |i: int| (a[i].mul(coeff(b, j - i))).mul(c_kj),
+        0, a.len() as int
+    );
+    assert(step3.eqv(final_sum));
+
+    // Chain: step1 ≡ step2 ≡ step3 ≡ final_sum
+    F::axiom_eqv_transitive(step1, step2, step3);
+    F::axiom_eqv_transitive(step1, step3, final_sum);
+    assert(sum_f.mul(c_kj).eqv(final_sum));
+
+    // Final chain: raw_j*c_kj ≡ sum_f*c_kj ≡ final_sum
+    F::axiom_eqv_transitive(raw_j.mul(c_kj), sum_f.mul(c_kj), final_sum);
+
+    // Assert the result using the exact expression from the ensures clause
+    assert(poly_mul_raw(a, b)[j].mul(coeff(c, k - j)).eqv(
+        sum::<F>(|i: int| (a[i].mul(coeff(b, j - i))).mul(coeff(c, k - j)), 0, a.len() as int)
+    ));
+}
+
+/// Helper: conv_coeff(a, b, k) = sum_i a[i] * coeff(b, k-i)
+/// When summing over the full range [0, a.len()), coeff(a, i) = a[i] for all i in range.
+proof fn lemma_conv_coeff_expand_direct<F: Ring>(
+    a: Seq<F>,
+    b: Seq<F>,
+    k: int,
+)
+    requires
+        a.len() > 0,
+        b.len() > 0,
+    ensures
+        conv_coeff(a, b, k).eqv(sum::<F>(|i: int| a[i].mul(coeff(b, k - i)), 0, a.len() as int)),
+{
+    // Step 1: Get the standard expansion with coeff(a, i)
+    lemma_conv_coeff_expand::<F>(a, b, k);
+    let sum_with_coeff = sum::<F>(|i: int| coeff(a, i).mul(coeff(b, k - i)), 0, a.len() as int);
+    let sum_direct = sum::<F>(|i: int| a[i].mul(coeff(b, k - i)), 0, a.len() as int);
+
+    // Step 2: Show pointwise equivalence: coeff(a, i) * coeff(b, k-i) ≡ a[i] * coeff(b, k-i)
+    // For i in [0, a.len()), coeff(a, i) = a[i]
+    assert forall|i: int| 0 <= i < a.len() as int implies
+        (#[trigger] coeff(a, i).mul(coeff(b, k - i))).eqv(a[i].mul(coeff(b, k - i)))
+    by {
+        assert(coeff(a, i) =~= a[i]);  // For i in bounds, coeff returns the element
+        F::axiom_eqv_reflexive(a[i].mul(coeff(b, k - i)));
+    };
+
+    // Step 3: Use sum_congruence to show the sums are equivalent
+    lemma_sum_congruence::<F>(
+        |i: int| coeff(a, i).mul(coeff(b, k - i)),
+        |i: int| a[i].mul(coeff(b, k - i)),
+        0, a.len() as int
+    );
+
+    // Step 4: Chain equivalences: conv_coeff ≡ sum_with_coeff ≡ sum_direct
+    assert(sum_with_coeff.eqv(sum_direct));
+    F::axiom_eqv_transitive(conv_coeff(a, b, k), sum_with_coeff, sum_direct);
 }
 
 /// Raw convolution associativity: conv(raw(a,b), c, k) ≡ conv(a, raw(b,c), k)
@@ -662,46 +822,23 @@ proof fn lemma_conv_raw_associative<F: Ring>(
     };
 
     // Now prove that conv_coeff(a, b, j) = sum_i a[i] * coeff(b, j-i)
-    // For i in range [0, n_a), coeff(a, i) = a[i]
+    // Use the helper lemma to prove this for all valid j
     assert forall|j: int| 0 <= j < raw_ab.len() as int
         implies conv_coeff(a, b, j).eqv(sum::<F>(|i: int| a[i].mul(coeff(b, j - i)), 0, n_a as int))
     by {
-        lemma_conv_coeff_expand::<F>(a, b, j);
-
-        // Show pointwise equivalence: coeff(a, i) * coeff(b, j-i) ≡ a[i] * coeff(b, j-i)
-        // For i in [0, n_a), coeff(a, i) = a[i]
-        let f1 = |i: int| coeff(a, i).mul(coeff(b, j - i));
-        let f2 = |i: int| a[i].mul(coeff(b, j - i));
-
-        assert forall|i: int| 0 <= i < n_a as int implies (#[trigger] f1(i)).eqv(f2(i)) by {
-            // coeff(a, i) = a[i] when 0 <= i < n_a
-            assert(coeff(a, i) =~= a[i]);
-            F::axiom_eqv_reflexive(f2(i));
-        };
-
-        // Therefore the sums are equivalent
-        lemma_sum_congruence::<F>(f1, f2, 0, n_a as int);
-
-        // Chain: conv_coeff(a,b,j) ≡ sum(f1) ≡ sum(f2)
-        // From lemma_conv_coeff_expand: conv_coeff(a, b, j) ≡ sum(f1)
-        // From lemma_sum_congruence: sum(f1) ≡ sum(f2)
-        // By transitivity: conv_coeff(a, b, j) ≡ sum(f2)
-        let lhs = conv_coeff(a, b, j);
-        let mid = sum::<F>(f1, 0, n_a as int);
-        let rhs = sum::<F>(f2, 0, n_a as int);
-
-        // From lemma_conv_coeff_expand, we have lhs ≡ mid
-        // From lemma_sum_congruence, we have mid ≡ rhs
-        // By transitivity: lhs ≡ rhs
-        assert(mid.eqv(rhs));  // From lemma_sum_congruence
-        // lhs ≡ mid needs to be extracted from lemma_conv_coeff_expand's ensures
-        // For now, we complete the chain
-        F::axiom_eqv_transitive(lhs, mid, rhs);
-        assert(lhs.eqv(rhs));
+        lemma_conv_coeff_expand_direct::<F>(a, b, j);
     };
 
     // Now use sum_scale_right to get: (sum_i a[i]*b[j-i]) * c[k-j] ≡ sum_i (a[i]*b[j-i])*c[k-j]
-    // For each j, prove raw_ab[j] * c[k-j] ≡ sum_i (a[i]*b[j-i])*c[k-j]
+    // For each j, we prove raw_ab[j] * c[k-j] ≡ sum_i (a[i]*b[j-i])*c[k-j]
+    //
+    // Proof for each j:
+    // 1. raw_ab[j] ≡ conv_coeff(a, b, j) (proven above via lemma_poly_mul_raw_index)
+    // 2. conv_coeff(a, b, j) ≡ sum_i a[i]*coeff(b, j-i) (proven above)
+    // 3. (sum_i a[i]*coeff(b, j-i)) * c[k-j] ≡ sum_i (a[i]*coeff(b, j-i))*c[k-j] (by lemma_sum_scale_right)
+    //
+    // Therefore: raw_ab[j] * c[k-j] ≡ sum_i (a[i]*coeff(b, j-i)) * c[k-j]
+    // For each j, prove raw_ab[j] * c[k-j] ≡ sum_i (a[i]*coeff(b,j-i))*c[k-j]
     //
     // Proof sketch for each j:
     // 1. raw_ab[j] ≡ conv_coeff(a, b, j) [by definition of poly_mul_raw]
@@ -709,18 +846,24 @@ proof fn lemma_conv_raw_associative<F: Ring>(
     // 3. sum_i a[i]*coeff(b, j-i) * c[k-j] ≡ sum_i (a[i]*coeff(b, j-i)) * c[k-j] [by sum_scale_right]
     // Therefore: raw_ab[j] * c[k-j] ≡ sum_i (a[i]*coeff(b, j-i)) * c[k-j]
     //
-    // Proof: For each j, we have:
-    //   raw_ab[j] ≡ sum_i a[i]*b[j-i] (by poly_mul_raw definition)
-    //   So raw_ab[j] * c[k-j] ≡ (sum_i a[i]*b[j-i]) * c[k-j]
-    //                         ≡ sum_i (a[i]*b[j-i]) * c[k-j] (by distributivity)
-    //                         ≡ sum_i (a[i]*coeff(b, j-i)) * c[k-j] (since coeff(b, j-i) = b[j-i] when valid)
-    //
-    // For now, we defer the detailed forall proof as it requires complex quantifier reasoning.
-    assume(forall|j: int| 0 <= j < raw_ab.len() as int ==>
-        raw_ab[j].mul(coeff(c, k - j)).eqv(
+    // Prove forall|j| raw_ab[j] * c[k-j] ≡ sum_i (a[i]*b[j-i])*c[k-j]
+    // For each j, we chain:
+    //   raw_ab[j] * c[k-j]
+    //   ≡ conv_coeff(a, b, j) * c[k-j]                    [by lemma_poly_mul_raw_index]
+    //   ≡ (sum_i a[i]*coeff(b, j-i)) * c[k-j]              [by conv_coeff definition]
+    //   ≡ sum_i (a[i]*coeff(b, j-i)) * c[k-j]              [by lemma_sum_scale_right]
+    // Step 4: Build the main equivalence using the helper lemma
+    // We need to show: raw_ab[j] * c[k-j] ≡ sum_i (a[i]*coeff(b,j-i))*c[k-j]
+    // This is exactly what lemma_conv_distributivity_step proves.
+
+    // First, prove the key forall statement for all valid j using the helper
+    assert forall|j: int| 0 <= j < raw_ab.len() as int
+        implies poly_mul_raw(a, b)[j].mul(coeff(c, k - j)).eqv(
             sum::<F>(|i: int| (a[i].mul(coeff(b, j - i))).mul(coeff(c, k - j)), 0, n_a as int)
         )
-    );
+    by {
+        lemma_conv_distributivity_step::<F>(a, b, c, j, k);
+    };
 
     // Now LHS = sum_j sum_i (a[i]*b[j-i])*c[k-j]
     // Apply Fubini to swap sums
