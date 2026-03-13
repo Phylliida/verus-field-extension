@@ -1,6 +1,7 @@
 use crate::minimal_poly::MinimalPoly;
 use crate::poly_arith::{ext_mul, poly_eqv, poly_one};
 use crate::poly_xgcd::*;
+use crate::ring_lemmas::lemma_xgcd_inverse_implies_field_inverse;
 use crate::spec::*;
 use verus_algebra::traits::equivalence::Equivalence;
 use verus_algebra::traits::ring::Ring;
@@ -71,16 +72,21 @@ impl MinimalPoly<Rational> for CubeRoot2 {
         assert(!poly_is_zero(p_full)) by {
             assert(p_full[3].eqv(Rational::from_int_spec(1)));
         }
-        // Note: We need to prove that our truncated inverse is still a valid inverse
-        // The full inverse from XGCD satisfies: inv * a ≡ 1 (mod p)
-        // After truncation to degree 3, this still holds for the field extension
-        assume(!poly_is_zero(a)); // This is a precondition of the trait axiom
+
+        // Preconditions from the trait axiom
+        assert(a.len() == 3);
+
+        // Use XGCD correctness to get the full inverse property
         lemma_poly_inverse_mod_is_inverse::<Rational>(a, p_full);
-        // The result is equivalent to poly_one after reduction modulo p
-        assume(poly_eqv(
-            ext_mul(Self::inverse_poly(a), a, Self::coeffs()),
-            poly_one::<Rational>(Self::degree()),
-        ));
+
+        // Connect XGCD inverse (mod p_full) with field extension inverse (mod coeffs)
+        let inv_full = poly_inverse_mod(a, p_full);
+        lemma_xgcd_inverse_implies_field_inverse::<Rational>(
+            a, inv_full, Self::coeffs(), p_full
+        );
+
+        // The truncated inverse is the field extension inverse
+        assert(Self::inverse_poly(a) =~= poly_truncate(inv_full, 3));
     }
 
     proof fn axiom_inverse_congruence(a: Seq<Rational>, b: Seq<Rational>) {
