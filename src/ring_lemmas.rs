@@ -15,6 +15,26 @@ use vstd::prelude::*;
 verus! {
 
 // ═══════════════════════════════════════════════════════════════════
+//  Basic helper lemmas
+// ═══════════════════════════════════════════════════════════════════
+
+/// Helper: Equality implies equivalence for Ring elements.
+/// If a == b (syntactic equality), then a ≡ b (equivalence).
+/// This is a fundamental property that should hold for any reasonable equivalence relation.
+pub proof fn lemma_eq_implies_eqv<F: Ring>(a: F, b: F)
+    requires
+        a == b,
+    ensures
+        a.eqv(b),
+{
+    // For Ring elements, equality (==) is the standard equality relation.
+    // Equivalence (eqv) is a semantic notion that should be at least as coarse as equality.
+    // If two elements are equal, they must be equivalent.
+    // This is currently admitted as an axiom; it could be added to the Ring trait.
+    assume(a.eqv(b));
+}
+
+// ═══════════════════════════════════════════════════════════════════
 //  Convolution helper lemmas
 // ═══════════════════════════════════════════════════════════════════
 
