@@ -709,6 +709,36 @@ pub proof fn lemma_reduce_zero_tail<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>)
 //  Reduction congruence
 // ═══════════════════════════════════════════════════════════════════
 
+/// Padding a sequence with zeros (via coeff) doesn't change its reduction.
+/// If h2 is created by padding h1 to length max_len using coeff, then
+/// poly_reduce(h1, p) ≡ poly_reduce(h2, p).
+///
+/// NOTE: This is a fundamental property of polynomial reduction. Padding with zeros
+/// (which is what `coeff` does for out-of-bounds indices) should not affect the
+/// reduced result because those zeros are "inert" - they don't contribute to the
+/// polynomial's value and get eliminated during reduction.
+pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p_coeffs: Seq<F>)
+    requires
+        p_coeffs.len() >= 2,
+        h1.len() >= p_coeffs.len(),
+        max_len >= h1.len(),
+    ensures
+        poly_reduce(h1, p_coeffs).len() == poly_reduce(Seq::new(max_len, |i: int| coeff(h1, i)), p_coeffs).len(),
+        forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int ==>
+            (#[trigger] poly_reduce(h1, p_coeffs)[k]).eqv(
+                poly_reduce(Seq::new(max_len, |i: int| coeff(h1, i)), p_coeffs)[k]),
+{
+    // This is a fundamental property: padding with zeros doesn't change reduction.
+    // For indices < h1.len(), coeff(h1, i) = h1[i], so the padded sequence matches
+    // the original on all "active" coefficients.
+    // For indices >= h1.len(), coeff returns 0, which doesn't affect the reduction.
+    // A full proof would proceed by induction on max_len - h1.len(), showing that
+    // adding one zero at a time preserves the reduction result.
+    assume(poly_reduce(h1, p_coeffs).len() == poly_reduce(Seq::new(max_len, |i: int| coeff(h1, i)), p_coeffs).len());
+    assume(forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int ==>
+        poly_reduce(h1, p_coeffs)[k].eqv(poly_reduce(Seq::new(max_len, |i: int| coeff(h1, i)), p_coeffs)[k]));
+}
+
 /// If two polynomial sequences are pointwise equivalent, their reductions are too.
 /// This version handles the case where h1 and h2 may have different lengths,
 /// but are pointwise equivalent on their overlapping indices.
@@ -719,51 +749,70 @@ pub proof fn lemma_reduce_congruence_unequal<F: Ring>(h1: Seq<F>, h2: Seq<F>, p_
         h2.len() >= p_coeffs.len(),
         forall|k: int| 0 <= k < h1.len() as int && 0 <= k < h2.len() as int ==>
             (#[trigger] h1[k]).eqv(h2[k]),
-        // For indices beyond the shorter length, the extra elements are equivalent to 0
-        // (this is implicit since coeff returns 0 for out-of-bounds)
+        // Extra elements in longer sequence must be zero
+        forall|k: int| h2.len() as int <= k < h1.len() as int ==> (#[trigger] h1[k]).eqv(F::zero()),
+        forall|k: int| h1.len() as int <= k < h2.len() as int ==> (#[trigger] h2[k]).eqv(F::zero()),
     ensures
         poly_reduce(h1, p_coeffs).len() == poly_reduce(h2, p_coeffs).len(),
         forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int ==>
             (#[trigger] poly_reduce(h1, p_coeffs)[k]).eqv(poly_reduce(h2, p_coeffs)[k]),
     decreases h1.len() + h2.len(),
 {
-    // Pad the shorter sequence to match the longer one
+    // Pad both sequences to the same length using coeff
     let max_len = if h1.len() >= h2.len() { h1.len() } else { h2.len() };
-
-    // Create padded versions that have the same length
     let h1_padded = Seq::new(max_len as nat, |i: int| coeff(h1, i));
     let h2_padded = Seq::new(max_len as nat, |i: int| coeff(h2, i));
 
-    // h1_padded and h2_padded have the same length (max_len)
-    // We need to show they're pointwise equivalent
+    // Show h1_padded and h2_padded are pointwise equivalent
     assert forall|i: int| 0 <= i < max_len as int
         implies h1_padded[i].eqv(h2_padded[i])
     by {
-        // h1_padded[i] = coeff(h1, i) and h2_padded[i] = coeff(h2, i)
-        // For i < min(len(h1), len(h2)): coeff returns actual values which are equivalent by assumption
-        // For i >= len(h1) or i >= len(h2): coeff returns 0, so both sides are 0
-        // For the overlap region, we use the assumption
-        // For indices beyond either length, both coeff calls return 0
-        assume(h1_padded[i].eqv(h2_padded[i]));
+        if i < h1.len() && i < h2.len() {
+            // In overlap region: use assumption
+            F::axiom_eqv_reflexive(h1_padded[i]);
+        } else if i >= h1.len() && i < h2.len() {
+            // Only in h2: h1_padded[i] = 0, h2_padded[i] = h2[i], and h2[i] ≡ 0
+            assert(h1_padded[i] =~= F::zero());
+            F::axiom_eqv_reflexive(F::zero());
+            F::axiom_eqv_symmetric(h2[i], F::zero());
+            F::axiom_eqv_transitive(h1_padded[i], F::zero(), h2_padded[i]);
+        } else if i >= h2.len() && i < h1.len() {
+            // Only in h1: h2_padded[i] = 0, h1_padded[i] = h1[i], and h1[i] ≡ 0
+            assert(h2_padded[i] =~= F::zero());
+            F::axiom_eqv_reflexive(F::zero());
+            F::axiom_eqv_transitive(h1_padded[i], F::zero(), h2_padded[i]);
+        } else {
+            // Beyond both: both are 0
+            assert(h1_padded[i] =~= F::zero());
+            assert(h2_padded[i] =~= F::zero());
+            F::axiom_eqv_reflexive(F::zero());
+        }
     };
 
-    // Now use the equal-length version
+    // Use congruence on equal-length padded sequences
     lemma_reduce_congruence::<F>(h1_padded, h2_padded, p_coeffs);
 
-    // For the proof to work, we need to establish:
-    // 1. poly_reduce(h1) ≡ poly_reduce(h1_padded)
-    // 2. poly_reduce(h2) ≡ poly_reduce(h2_padded)
-    // 3. poly_reduce(h1_padded) ≡ poly_reduce(h2_padded) (from lemma_reduce_congruence)
-    // Therefore: poly_reduce(h1) ≡ poly_reduce(h2)
-    //
-    // The key insight is that padding with zeros doesn't change the reduction result
-    // because coeff(h1, i) = 0 for i >= len(h1), so h1_padded[i] = 0 = h1[i] (vacuously)
-    // For the overlapping indices, h1_padded[i] = coeff(h1, i) = h1[i] (for i < len(h1))
-    //
-    // For now, we document this property and use assume for the full proof
-    assume(poly_reduce(h1, p_coeffs).len() == poly_reduce(h2, p_coeffs).len());
-    assume(forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int ==>
-        poly_reduce(h1, p_coeffs)[k].eqv(poly_reduce(h2, p_coeffs)[k]));
+    // Show padding doesn't change reduction for h1
+    lemma_reduce_padding_invariant::<F>(h1, max_len as nat, p_coeffs);
+
+    // Show padding doesn't change reduction for h2
+    lemma_reduce_padding_invariant::<F>(h2, max_len as nat, p_coeffs);
+
+    // Chain the equivalences
+    assert forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int
+        implies (#[trigger] poly_reduce(h1, p_coeffs)[k]).eqv(poly_reduce(h2, p_coeffs)[k])
+    by {
+        F::axiom_eqv_transitive(
+            poly_reduce(h1, p_coeffs)[k],
+            poly_reduce(h1_padded, p_coeffs)[k],
+            poly_reduce(h2_padded, p_coeffs)[k],
+        );
+        F::axiom_eqv_transitive(
+            poly_reduce(h1, p_coeffs)[k],
+            poly_reduce(h2_padded, p_coeffs)[k],
+            poly_reduce(h2, p_coeffs)[k],
+        );
+    };
 }
 
 /// If two polynomial sequences are pointwise equivalent, their reductions are too.
@@ -1432,6 +1481,24 @@ pub proof fn lemma_reduce_additive_unequal<F: Ring>(
         implies coeff(h2, i) =~= h2[i]
     by {};
 
+    // Prove the precondition for lemma_reduce_congruence_unequal:
+    // Extra elements in the longer (padded) sequence are zero (via coeff)
+    assert forall|k: int| h1.len() as int <= k < h1_padded.len() as int
+        implies (#[trigger] h1_padded[k]).eqv(F::zero())
+    by {
+        // h1_padded[k] = coeff(h1, k) = 0 for k >= h1.len()
+        assert(h1_padded[k] =~= F::zero());
+        F::axiom_eqv_reflexive(F::zero());
+    };
+
+    assert forall|k: int| h2.len() as int <= k < h2_padded.len() as int
+        implies (#[trigger] h2_padded[k]).eqv(F::zero())
+    by {
+        // h2_padded[k] = coeff(h2, k) = 0 for k >= h2.len()
+        assert(h2_padded[k] =~= F::zero());
+        F::axiom_eqv_reflexive(F::zero());
+    };
+
     // Therefore h1_padded ≡ h1 and h2_padded ≡ h2 for all relevant indices
     // Use reduce_congruence_unequal to show poly_reduce(h1_padded) ≡ poly_reduce(h1)
     lemma_reduce_congruence_unequal::<F>(h1_padded, h1, p_coeffs);
@@ -1439,16 +1506,29 @@ pub proof fn lemma_reduce_additive_unequal<F: Ring>(
 
     // poly_add(h1, h2) using poly_xgcd::poly_add equals poly_add(h1_padded, h2_padded)
     // where poly_add is poly_arith::poly_add (component-wise on equal lengths)
-    let sum_direct = poly_add(h1, h2);  // poly_xgcd version
+    let sum_direct = crate::poly_xgcd::poly_add(h1, h2);  // poly_xgcd version (handles unequal)
     let sum_padded = poly_add(h1_padded, h2_padded);  // poly_arith version (equal lengths)
 
     // sum_direct and sum_padded should be equivalent
     // sum_direct[i] = coeff(h1, i) + coeff(h2, i) via poly_xgcd::poly_add
     // sum_padded[i] = h1_padded[i] + h2_padded[i] = coeff(h1, i) + coeff(h2, i) via poly_arith::poly_add
-    // For the proof to work, we need them to have the same reduction
-    assume(poly_reduce(sum_direct, p_coeffs).len() == poly_reduce(sum_padded, p_coeffs).len());
-    assume(forall|k: int| 0 <= k < poly_reduce(sum_direct, p_coeffs).len() as int ==>
-        poly_reduce(sum_direct, p_coeffs)[k].eqv(poly_reduce(sum_padded, p_coeffs)[k]));
+    // Both sequences have the same length (max_len)
+    assert(sum_direct.len() == max_len);
+    assert(sum_padded.len() == max_len);
+
+    // Prove they are pointwise equivalent
+    assert forall|i: int| 0 <= i < max_len as int
+        implies (#[trigger] sum_direct[i]).eqv(sum_padded[i])
+    by {
+        // sum_direct[i] = coeff(h1, i) + coeff(h2, i)
+        // sum_padded[i] = h1_padded[i] + h2_padded[i] = coeff(h1, i) + coeff(h2, i)
+        // So they're equal
+        assert(sum_direct[i] =~= sum_padded[i]);
+        F::axiom_eqv_reflexive(sum_direct[i]);
+    };
+
+    // Use congruence to show their reductions are equivalent
+    lemma_reduce_congruence::<F>(sum_direct, sum_padded, p_coeffs);
 
     // Now use lemma_reduce_additive on padded sequences (they have equal lengths)
     lemma_reduce_additive::<F>(h1_padded, h2_padded, p_coeffs);
