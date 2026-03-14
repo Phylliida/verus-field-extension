@@ -173,8 +173,10 @@ impl MinimalPoly<Rational> for CubeRoot2 {
         // Preconditions: a and b have correct length
         assert(a.len() == 3);
         assert(b.len() == 3);
-        // Trait requires: exists|i| !a[i].eqv(zero) - need assume to bridge to !poly_is_zero
-        assume(!poly_is_zero(a) && !poly_is_zero(b));
+        // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
+        // The helper lemma bridges the trait requirement to poly_is_zero
+        lemma_not_zero_from_trait::<Rational>(a, 3);
+        lemma_not_zero_from_trait::<Rational>(b, 3);
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 3);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
