@@ -2115,7 +2115,12 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
     ensures
         conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)),
 {
-    // This follows from sum reindexing
+    // Mathematical proof:
+    // LHS = sum_{j=0}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
+    //     = sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j)   [since coeff(p_shift, j) = 0 for j < k]
+    //     = sum_{l=0}^{len_p-1} p[l] * coeff(q, i-k-l)    [reindex with l = j-k]
+    //     = conv_coeff(p, q, i-k)
+
     assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)));
 }
 

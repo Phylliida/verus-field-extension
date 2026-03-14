@@ -636,19 +636,10 @@ proof fn lemma_reduce_step_zero_lead_one<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>, k
     ensures
         reduce_step(h, p_coeffs)[k].eqv(h[k]),
 {
-    let n = p_coeffs.len();
-    let m = h.len();
-    let lead = h[m as int - 1];
-    let shift = m - 1 - n;
-
-    reveal(reduce_step);
-
-    if shift as int <= k < shift + n as int {
-        lemma_mul_zero_equiv::<F>(lead, p_coeffs[k - shift]);
-        lemma_sub_zero_right::<F>(h[k], lead.mul(p_coeffs[k - shift]));
-    }
-
-    assume(reduce_step(h, p_coeffs)[k].eqv(h[k]));
+    // Use the forall version and instantiate it
+    lemma_reduce_step_zero_lead::<F>(h, p_coeffs);
+    // The lemma ensures forall|j| 0 <= j < h.len()-1 ==> reduce_step(h,p)[j].eqv(h[j])
+    // So for our specific k, we have reduce_step(h, p_coeffs)[k].eqv(h[k])
 }
 
 /// When leading coefficient is ≡ 0, reduce_step result is pointwise ≡ to truncation.
@@ -751,6 +742,65 @@ pub proof fn lemma_reduce_zero_tail<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>)
 /// - For indices >= h1.len(), coeff returns 0, which doesn't affect the reduction.
 /// - During reduction, trailing zeros are eliminated (via reduce_step logic).
 ///
+
+/// Helper: Adding one trailing zero doesn't change reduction result.
+/// If h_short has length L and h_long = h_short ++ [0] has length L+1,
+/// then poly_reduce(h_long) ≡ poly_reduce(h_short) for all valid positions.
+///
+/// KEY INSIGHT: The leading coefficient of h_long is 0, so reduce_step(h_long)
+/// produces a sequence equivalent to h_short for all positions < L.
+/// Then by congruence, poly_reduce(reduce_step(h_long)) ≡ poly_reduce(h_short).
+proof fn lemma_reduce_add_trailing_zero<F: Ring>(
+    h_short: Seq<F>,
+    h_long: Seq<F>,
+    p_coeffs: Seq<F>,
+)
+    requires
+        p_coeffs.len() >= 2,
+        h_short.len() >= p_coeffs.len(),
+        h_long.len() == h_short.len() + 1,
+        forall|i: int| 0 <= i < h_short.len() as int ==> h_long[i] =~= h_short[i],
+        h_long[h_long.len() as int - 1].eqv(F::zero()),
+    ensures
+        poly_reduce(h_long, p_coeffs).len() == poly_reduce(h_short, p_coeffs).len(),
+        forall|k: int| 0 <= k < poly_reduce(h_short, p_coeffs).len() as int ==>
+            poly_reduce(h_long, p_coeffs)[k].eqv(poly_reduce(h_short, p_coeffs)[k]),
+{
+    let n = p_coeffs.len();
+    let L = h_short.len();
+
+    // h_long.len() = L + 1 > n (since L >= n)
+    // Apply reduce_step to h_long
+    lemma_reduce_step_zero_lead::<F>(h_long, p_coeffs);
+
+    let reduced_long = reduce_step(h_long, p_coeffs);
+
+    // reduced_long has length L
+    // Show reduced_long[k] ≡ h_short[k] for all k < L
+    assert forall|k: int| 0 <= k < L as int
+        implies reduced_long[k].eqv(h_short[k])
+    by {
+        // reduced_long[k] ≡ h_long[k] from lemma_reduce_step_zero_lead
+        // h_long[k] ≡ h_short[k] from precondition (equality implies equivalence)
+        F::axiom_eq_implies_eqv(h_long[k], h_short[k]);
+        F::axiom_eqv_transitive(reduced_long[k], h_long[k], h_short[k]);
+    };
+
+    // Now reduced_long and h_short have the same length L and are pointwise equivalent
+    // Use congruence to show their reductions are equivalent
+    lemma_reduce_congruence::<F>(reduced_long, h_short, p_coeffs);
+
+    // Finally, poly_reduce(h_long) = poly_reduce(reduce_step(h_long)) = poly_reduce(reduced_long)
+    // ≡ poly_reduce(h_short) by congruence
+    assert forall|k: int| 0 <= k < n as int
+        implies poly_reduce(h_long, p_coeffs)[k].eqv(poly_reduce(h_short, p_coeffs)[k])
+    by {
+        // poly_reduce(h_long)[k] ≡ poly_reduce(reduced_long)[k] by definition
+        // poly_reduce(reduced_long)[k] ≡ poly_reduce(h_short)[k] by congruence
+    };
+}
+
+
 /// A full proof would proceed by induction on (max_len - h1.len()):
 /// 1. Base case: max_len == h1.len() implies h_padded == h1, trivial.
 /// 2. Inductive step: Show that adding one zero preserves reduction equivalence
