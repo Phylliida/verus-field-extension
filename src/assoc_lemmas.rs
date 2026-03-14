@@ -2146,10 +2146,7 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
     let len_p = p.len();
 
     // LHS = sum_{j=0}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
-    // Split into j < k and j >= k parts
-    // For j < k: coeff(p_shift, j) = 0
-    // For j >= k: coeff(p_shift, j) = p[j-k]
-
+    // Split into j < k (all zeros) and j >= k parts
     lemma_sum_split::<F>(
         |j: int| coeff(p_shift, j).mul(coeff(q, i - j)),
         0,
@@ -2157,13 +2154,17 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
         len_ps as int,
     );
 
-    // First part (j < k) is all zeros
+    // First part (j < k) is all zeros since coeff(p_shift, j) = 0 for j < k
     lemma_sum_constant::<F>(F::zero(), 0, k as int);
 
-    // Second part: sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j)
-    // Use reindexing: l = j - k, so j = l + k
+    // Second part: sum_{j=k}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
+    // For j >= k, coeff(p_shift, j) = p[j-k]
+    // So this is: sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j)
+
+    // Reindex with l = j - k, so j = l + k
     // When j = k: l = 0
     // When j = len_ps - 1 = k + len_p - 1: l = len_p - 1
+    // And i - j = i - l - k = (i - k) - l
 
     lemma_sum_reindex::<F>(
         |j: int| p[j - k as int].mul(coeff(q, i - j)),
@@ -2172,8 +2173,23 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
         k as int,
     );
 
-    // After reindexing: sum_{l=0}^{len_p-1} p[l] * coeff(q, i - k - l)
+    // After reindexing: sum_{l=0}^{len_p-1} p[l] * coeff(q, (i-k) - l)
     // This is exactly conv_coeff(p, q, i - k)
+    //
+    // conv_coeff(p, q, i-k) = sum_{l=0}^{len_p-1} coeff(p, l) * coeff(q, (i-k)-l)
+    //                       = sum_{l=0}^{len_p-1} p[l] * coeff(q, (i-k)-l)
+
+    // The sum_reindex lemma gives us:
+    // sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j) ≡ sum_{l=0}^{len_p-1} p[l] * coeff(q, i-k-l)
+
+    // And the RHS is conv_coeff(p, q, i-k)
+
+    // Chain the equivalences:
+    // 1. conv_coeff(p_shift, q, i) ≡ sum_0^{len_ps-1} coeff(p_shift,j)*coeff(q,i-j)  [by definition]
+    // 2. sum_0^{len_ps-1} ≡ sum_0^{k-1} + sum_k^{len_ps-1}  [by sum_split]
+    // 3. sum_0^{k-1} ≡ 0  [by sum_constant]
+    // 4. sum_k^{len_ps-1} p[j-k]*coeff(q,i-j) ≡ sum_0^{len_p-1} p[l]*coeff(q,i-k-l)  [by sum_reindex]
+    // 5. sum_0^{len_p-1} p[l]*coeff(q,i-k-l) = conv_coeff(p, q, i-k)  [by definition]
 
     assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)));
 }

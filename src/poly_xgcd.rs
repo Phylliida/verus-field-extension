@@ -10,6 +10,21 @@ pub open spec fn poly_is_zero<F: Ring>(p: Seq<F>) -> bool {
     forall|i: int| 0 <= i < p.len() as int ==> (#[trigger] p[i]).eqv(F::zero())
 }
 
+/// Bridge lemma: poly_is_zero is equivalent to "all coefficients are zero"
+/// !poly_is_zero(p) ⟺ exists|i| !p[i].eqv(F::zero())
+pub proof fn lemma_not_poly_is_zero<F: Ring>(p: Seq<F>)
+    requires
+        p.len() > 0,
+        exists|i: int| 0 <= i < p.len() as int && !(#[trigger] p[i]).eqv(F::zero()),
+    ensures
+        !poly_is_zero(p),
+{
+    // poly_is_zero(p) = forall|i| 0 <= i < p.len() ==> p[i].eqv(F::zero())
+    // The negation is: exists|i| 0 <= i < p.len() && !p[i].eqv(F::zero())
+    // Which is exactly our precondition
+    assert(!poly_is_zero(p));
+}
+
 /// Polynomial degree (-1 for zero polynomial, otherwise highest index with nonzero coefficient)
 pub open spec fn poly_deg<F: Ring>(p: Seq<F>) -> int {
     if poly_is_zero(p) { -1 } else { (p.len() - 1) as int }
