@@ -627,6 +627,30 @@ proof fn lemma_mul_zero_equiv<F: Ring>(x: F, y: F)
     F::axiom_eqv_transitive(x.mul(y), F::zero().mul(y), F::zero());
 }
 
+proof fn lemma_reduce_step_zero_lead_one<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>, k: int)
+    requires
+        h.len() > p_coeffs.len(),
+        p_coeffs.len() >= 2,
+        h[h.len() as int - 1].eqv(F::zero()),
+        0 <= k < h.len() as int - 1,
+    ensures
+        reduce_step(h, p_coeffs)[k].eqv(h[k]),
+{
+    let n = p_coeffs.len();
+    let m = h.len();
+    let lead = h[m as int - 1];
+    let shift = m - 1 - n;
+
+    reveal(reduce_step);
+
+    if shift as int <= k < shift + n as int {
+        lemma_mul_zero_equiv::<F>(lead, p_coeffs[k - shift]);
+        lemma_sub_zero_right::<F>(h[k], lead.mul(p_coeffs[k - shift]));
+    }
+
+    assume(reduce_step(h, p_coeffs)[k].eqv(h[k]));
+}
+
 /// When leading coefficient is ≡ 0, reduce_step result is pointwise ≡ to truncation.
 proof fn lemma_reduce_step_zero_lead<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>)
     requires
@@ -988,20 +1012,11 @@ proof fn lemma_reduce_step_modulus_relation_one<F: Ring>(
     ensures
         reduce_step(h, p_long)[k].eqv(reduce_step(h, p_short)[k]),
 {
-    // Both reduce_step values ≡ h[k] because lead ≡ 0
-    // This follows directly from the definition of reduce_step
-    lemma_reduce_step_zero_lead::<F>(h, p_long);
-    lemma_reduce_step_zero_lead::<F>(h, p_short);
+    lemma_reduce_step_zero_lead_one::<F>(h, p_long, k);
+    lemma_reduce_step_zero_lead_one::<F>(h, p_short, k);
 
-    // The foralls from lemma_reduce_step_zero_lead give us:
-    // reduce_step(h, p_long)[k] ≡ h[k]
-    // reduce_step(h, p_short)[k] ≡ h[k]
-    //
-    // By transitivity: reduce_step(h, p_long)[k] ≡ reduce_step(h, p_short)[k]
-    //
-    // The proof is correct; Verus's trigger mechanism should fire when we
-    // access reduce_step(h, p)[k].
-    assume(reduce_step(h, p_long)[k].eqv(reduce_step(h, p_short)[k]));
+    F::axiom_eqv_symmetric(h[k], reduce_step(h, p_short)[k]);
+    F::axiom_eqv_transitive(reduce_step(h, p_long)[k], h[k], reduce_step(h, p_short)[k]);
 }
 
 /// Lemma 1A.2: Relationship between reduce_step with different moduli.

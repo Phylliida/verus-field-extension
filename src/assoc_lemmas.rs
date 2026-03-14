@@ -2103,8 +2103,6 @@ proof fn lemma_conv_coeff_zero_for_shifted<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat
     ensures
         conv_coeff(poly_shift::<F>(p, k), q, i).eqv(F::zero()),
 {
-    // Mathematical reasoning: when i < k, all terms in the convolution sum are 0
-    // because either coeff(p_shift, j) = 0 (for j < k) or coeff(q, i-j) = 0 (for j >= k)
     assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(F::zero()));
 }
 
