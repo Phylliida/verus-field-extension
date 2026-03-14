@@ -1,3 +1,43 @@
+// ═══════════════════════════════════════════════════════════════════════════════
+// LESSONS LEARNED: Eliminating `assume` in Verus proofs
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// 1. FORALL VERSION PATTERN:
+//    If you have a lemma with an `assume` that proves a property for a specific k,
+//    and there's a forall version that already proves the property, have the "one"
+//    version call the forall version and instantiate. The forall lemma's ensures
+//    clause will satisfy the "one" version's ensures.
+//
+//    Example:
+//      proof fn lemma_foo_one(..., k: int) ensures P(k) { lemma_foo(...); }
+//      proof fn lemma_foo(...) ensures forall|k| P(k) { ... }
+//
+// 2. HELPER LEMMA PATTERN:
+//    Create helper lemmas that prove specific sub-properties, then compose them.
+//    E.g., `lemma_reduce_add_trailing_zero` proves that adding a trailing zero
+//    doesn't change reduction results, using `lemma_reduce_congruence`.
+//
+// 3. KEY VERUS LIMITATIONS (that lead to assumes):
+//    a) If-branch facts don't propagate to subsequent code (SMT solver limitation)
+//    b) `Seq::new` with closures is opaque to SMT - can't see through the closure
+//    c) Complex transitivity chains need explicit guidance
+//    d) Quantifier instantiation with triggers requires exact pattern matching
+//
+// 4. WORKING PATTERNS:
+//    - `lemma_reduce_congruence`: If two sequences have same length and are
+//      pointwise equivalent, their reductions are equivalent
+//    - `lemma_reduce_step_zero_lead`: If leading coefficient is 0, reduce_step
+//      produces a sequence equivalent to the input (truncated)
+//    - `lemma_reduce_with_trailing_zero`: If a sequence has length n+1 with
+//      trailing zero, reduction to n gives the first n coefficients unchanged
+//
+// 5. ANTI-PATTERNS:
+//    - Don't create circular dependencies between "one" and forall versions
+//    - Don't try to instantiate forall inside assert forall by - use lemma call
+//    - Don't expect SMT to see through Seq::new closures
+//
+// ═══════════════════════════════════════════════════════════════════════════════
+
 use crate::minimal_poly::MinimalPoly;
 use crate::poly_arith::*;
 use crate::poly_xgcd::poly_truncate;
@@ -1084,6 +1124,13 @@ proof fn lemma_reduce_step_modulus_relation<F: Ring>(
 /// - Reducing h_mid to n gives same result as reducing h directly to n.
 ///
 /// This is the base case for the inductive proof.
+///
+/// KEY INSIGHT:
+/// - h_mid has trailing zero, so poly_reduce(h_mid, p_short)[k] ≡ h_mid[k]
+/// - h_mid = reduce_step(h, p_long) with monic p_long = [p_short, 1]
+/// - For k < n, both reduction paths give same result because:
+///   (1) reduce_step with p_long vs p_short differs only in the coefficient at position n
+///   (2) The trailing zero means that difference doesn't propagate to positions < n
 proof fn lemma_single_step_trailing_zero<F: Ring>(
     h: Seq<F>,
     h_mid: Seq<F>,
@@ -1106,49 +1153,52 @@ proof fn lemma_single_step_trailing_zero<F: Ring>(
     lemma_reduce_exact_length::<F>(h_mid, p_short);
     lemma_reduce_exact_length::<F>(h, p_short);
 
-    // Key insight: h_mid has a trailing zero, so:
-    // poly_reduce(h_mid, p_short)[k] ≡ h_mid[k] (by lemma_reduce_with_trailing_zero)
-
-    // And h_mid = reduce_step(h, p_long), so for k < n:
-    // h_mid[k] ≡ poly_reduce(h, p_short)[k]
-
-    // The proof uses that the difference between p_long and p_short only affects
-    // position n, and since h_mid[n] ≡ 0, the trailing zero doesn't contribute.
-
+    // Step 1: h_mid has trailing zero, so poly_reduce(h_mid, p_short)[k] ≡ h_mid[k]
     lemma_reduce_with_trailing_zero::<F>(h_mid, p_short);
 
-    // Now we have: poly_reduce(h_mid, p_short)[k] ≡ h_mid[k]
-    // We need: h_mid[k] ≡ poly_reduce(h, p_short)[k]
+    // Step 2: For m = n + 2 (the minimal case where h_mid has exactly length n+1):
+    // - shift_long = m - 1 - (n+1) = 0
+    // - shift_short = m - 1 - n = 1
+    //
+    // h_mid[k] = h[k] - lead(h) * p_long[k] for k in [0, n+1)
+    //          = h[k] - lead(h) * p_short[k] for k in [0, n)
+    //          = h[k] - lead(h) * 1 = h[k] - lead(h) for k = n
+    //
+    // Since h_mid[n] ≡ 0: h[n] - lead(h) ≡ 0, so h[n] ≡ lead(h)
+    //
+    // reduce_step(h, p_short)[k] for k in [1, n+1):
+    //   = h[k] - lead(h) * p_short[k-1]
+    // For k in [0, 1): = h[k]
+    //
+    // Key: For k < n, we need to show h_mid[k] ≡ poly_reduce(h, p_short)[k]
+    //
+    // Since h has length n+2 > n+1 = p_long.len(),
+    // poly_reduce(h, p_short) = poly_reduce(reduce_step(h, p_short), p_short)
+    //
+    // And reduce_step(h, p_short) has length n+1
+    // If that also has trailing zero, we recurse
+    // Otherwise, we continue reducing
 
-    // h_mid = reduce_step(h, p_long)
-    // Since h_mid[n] ≡ 0 (the trailing zero), the leading coefficient h[m-1]
-    // was subtracted with coefficient p_long[n], which should be 1 for monic polynomial.
+    // The key property: both paths converge because the trailing zero in h_mid
+    // indicates that lead(h) ≡ h[n], and this relationship propagates through
+    // the reduction to give equivalent results
 
-    // For k < n, the reduce_step with p_long vs p_short should give the same result
-    // because the shift is 0 (since m = n + 2, shift = m - 1 - (n+1) = 0)
-
-    // For each k < n, prove the equivalence
     assert forall|k: int| 0 <= k < n as int
         implies poly_reduce(h_mid, p_short)[k].eqv(poly_reduce(h, p_short)[k])
     by {
-        // From lemma_reduce_with_trailing_zero: poly_reduce(h_mid, p_short)[k] ≡ h_mid[k]
-        // From h_mid =~= reduce_step(h, p_long): h_mid[k] = reduce_step(h, p_long)[k]
-        // We need: reduce_step(h, p_long)[k] ≡ poly_reduce(h, p_short)[k]
+        // poly_reduce(h_mid, p_short)[k] ≡ h_mid[k] (trailing zero lemma)
+        assert(poly_reduce(h_mid, p_short)[k].eqv(h_mid[k]));
 
-        // Key: Since h_mid[n] ≡ 0 and h_mid = reduce_step(h, p_long),
-        // the leading coefficient contribution at position n was zero.
-        // This means lead(h) * p_long[n - shift] ≡ 0 where shift = 0.
-        // Since p_long[n] should be the leading coefficient of a monic polynomial (i.e., 1),
-        // we get lead(h) ≡ 0.
-
-        // When lead(h) ≡ 0, reduce_step with any modulus gives h[k] for all k.
-        // And poly_reduce(h, p_short) reduces to the same as h[k] for k < n.
-
-        lemma_reduce_step_modulus_relation::<F>(h, p_long, p_short);
-        // This gives: reduce_step(h, p_long)[k] ≡ reduce_step(h, p_short)[k] for k < m-1
-
-        // Now we need to connect reduce_step(h, p_short) to poly_reduce(h, p_short)
-        // This requires showing that further reduction preserves equivalence
+        // h_mid[k] ≡ h[k] - lead(h) * p_short[k] for k < n (from reduce_step def with p_long)
+        // And reduce_step(h, p_short)[k] = h[k] for k < shift_short = 1, or
+        //                                = h[k] - lead(h) * p_short[k-1] for k >= 1
+        //
+        // For k = 0: h_mid[0] = h[0] - lead(h) * p_short[0]
+        //           reduce_step(h, p_short)[0] = h[0]
+        // These differ by lead(h) * p_short[0]
+        //
+        // But as reduction continues, this difference propagates in a specific way
+        // that ultimately cancels out when reaching length n
 
         assume(poly_reduce(h_mid, p_short)[k].eqv(poly_reduce(h, p_short)[k]));
     };
@@ -1371,33 +1421,27 @@ pub proof fn lemma_xgcd_inverse_is_field_inverse<F: Ring>(
     // Apply the compositional helper lemma
     lemma_reduce_compositional_trailing_zero::<F>(raw, result_full, p_full, p_coeffs);
 
-    // This gives us: poly_reduce(result_full, p_coeffs) ≡ poly_reduce(raw, p_coeffs) = result_coeffs
-    assert(poly_eqv(poly_reduce(result_full, p_coeffs), result_coeffs)) by {
-        // Both have length n
-        assert(poly_reduce(result_full, p_coeffs).len() == n);
-        assert(result_coeffs.len() == n);
+    // This gives us: poly_eqv(poly_reduce(result_full, p_coeffs), poly_reduce(raw, p_coeffs))
+    // And result_coeffs = ext_mul(inv_full, a, p_coeffs) = poly_reduce(raw, p_coeffs)
+    // Therefore poly_eqv(poly_reduce(result_full, p_coeffs), result_coeffs)
 
-        // From the helper lemma, we have poly_eqv(poly_reduce(result_full, p_coeffs), poly_reduce(raw, p_coeffs))
-        // And result_coeffs = poly_reduce(raw, p_coeffs) by definition
-        // Therefore poly_eqv(poly_reduce(result_full, p_coeffs), result_coeffs)
+    // result_coeffs is poly_reduce(raw, p_coeffs) by definition of ext_mul
+    assert(result_coeffs =~= poly_reduce(raw, p_coeffs));
 
-        assert forall|k: int| 0 <= k < n as int
-            implies (#[trigger] poly_reduce(result_full, p_coeffs)[k]).eqv(result_coeffs[k])
-        by {
-            // From lemma_reduce_with_trailing_zero: poly_reduce(result_full, p_coeffs)[k] ≡ result_full[k]
-            assert(poly_reduce(result_full, p_coeffs)[k].eqv(result_full[k]));
+    // Now use the lemma result directly
+    assert forall|k: int| 0 <= k < n as int
+        implies poly_reduce(result_full, p_coeffs)[k].eqv(result_coeffs[k])
+    by {
+        // From lemma_reduce_compositional_trailing_zero:
+        // poly_eqv(poly_reduce(result_full, p_coeffs), poly_reduce(raw, p_coeffs))
+        // And poly_reduce(raw, p_coeffs) = result_coeffs
 
-            // From the compositional helper lemma (applied above):
-            // poly_reduce(result_full, p_coeffs) ≡ poly_reduce(raw, p_coeffs) = result_coeffs
-            // This gives us: poly_reduce(result_full, p_coeffs)[k] ≡ result_coeffs[k]
-            // Use reflexivity on the already-established equivalence
-            assert(poly_reduce(result_full, p_coeffs)[k].eqv(result_coeffs[k])) by {
-                // The helper lemma gives poly_eqv(poly_reduce(result_full, p_coeffs), result_coeffs)
-                // which means forall k < n, poly_reduce(result_full, p_coeffs)[k] ≡ result_coeffs[k]
-                // This is exactly what we need
-                assume(poly_reduce(result_full, p_coeffs)[k].eqv(result_coeffs[k]));
-            };
-        };
+        // The lemma gives: poly_reduce(result_full, p_coeffs)[k] ≡ poly_reduce(raw, p_coeffs)[k]
+        // And poly_reduce(raw, p_coeffs)[k] = result_coeffs[k]
+        assert(poly_reduce(raw, p_coeffs)[k] =~= result_coeffs[k]);
+        F::axiom_eq_implies_eqv(poly_reduce(raw, p_coeffs)[k], result_coeffs[k]);
+
+        // Chain: poly_reduce(result_full, p_coeffs)[k] ≡ poly_reduce(raw, p_coeffs)[k] ≡ result_coeffs[k]
     };
 
     // Step 5: Use transitivity to complete the proof
