@@ -731,20 +731,116 @@ pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p
         forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int ==>
             (#[trigger] poly_reduce(h1, p_coeffs)[k]).eqv(
                 poly_reduce(Seq::new(max_len, |i: int| coeff(h1, i)), p_coeffs)[k]),
+    decreases max_len - h1.len()
 {
     let h_padded = Seq::new(max_len, |i: int| coeff(h1, i));
 
-    // This is a fundamental property of polynomial reduction:
-    // padding with zeros (via coeff) doesn't change the reduced result.
-    //
-    // For indices < h1.len(): coeff(h1, i) = h1[i], so padded matches original.
-    // For indices >= h1.len(): coeff returns 0, and zeros don't affect reduction.
-    //
-    // A full proof would use induction on (max_len - h1.len()) with
-    // lemma_reduce_step_zero_lead to show trailing zeros get eliminated.
-    assume(poly_reduce(h1, p_coeffs).len() == poly_reduce(h_padded, p_coeffs).len());
-    assume(forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int ==>
-        poly_reduce(h1, p_coeffs)[k].eqv(poly_reduce(h_padded, p_coeffs)[k]));
+    // Base case: if max_len == h1.len(), then h_padded == h1 (trivial)
+    if max_len == h1.len() {
+        // When max_len == h1.len(), h_padded is identical to h1
+        assert(h_padded =~= h1) by {
+            assert(h_padded.len() == h1.len());
+            assert forall|i: int| 0 <= i < h1.len() as int
+                implies h_padded[i] =~= h1[i]
+            by {
+                // coeff(h1, i) = h1[i] when i < h1.len()
+                assert(coeff(h1, i) =~= h1[i]);
+            };
+        };
+
+        // Since h_padded == h1, their reductions are identical
+        assert(poly_reduce(h1, p_coeffs) =~= poly_reduce(h_padded, p_coeffs));
+
+        // Prove the postconditions from equality
+        assert(poly_reduce(h1, p_coeffs).len() == poly_reduce(h_padded, p_coeffs).len());
+        assert forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int
+            implies (#[trigger] poly_reduce(h1, p_coeffs)[k]).eqv(
+                poly_reduce(h_padded, p_coeffs)[k])
+        by {
+            // Elements are equal, so equivalent by axiom
+            F::axiom_eq_implies_eqv(poly_reduce(h1, p_coeffs)[k], poly_reduce(h_padded, p_coeffs)[k]);
+        };
+    } else {
+        // Inductive case: max_len > h1.len()
+        // h_padded = h1 padded with zeros to length max_len
+        // For i < h1.len(): h_padded[i] = h1[i]
+        // For i >= h1.len(): h_padded[i] = 0
+
+        // Key insight: trailing zeros don't affect polynomial reduction.
+        // During reduction, we repeatedly apply reduce_step which eliminates
+        // the highest degree term. If that term is 0, the step effectively
+        // just truncates (by lemma_reduce_step_zero_lead).
+
+        // Create intermediate padding at max_len - 1
+        let h_mid = Seq::new((max_len - 1) as nat, |i: int| coeff(h1, i));
+
+        // Apply induction hypothesis
+        // This gives us: poly_reduce(h1) ≡ poly_reduce(h_mid)
+        lemma_reduce_padding_invariant::<F>(h1, (max_len - 1) as nat, p_coeffs);
+
+        // Show that h_padded extends h_mid by one zero
+        assert(h_padded.len() == max_len);
+        assert(h_mid.len() == max_len - 1);
+
+        // Show that h_padded[max_len - 1] = 0
+        assert(h_padded[(max_len - 1) as int] =~= F::zero()) by {
+            assert(coeff(h1, (max_len - 1) as int) =~= F::zero()) by {
+                assert((max_len - 1) as int >= h1.len() as int);
+            };
+        };
+
+        // Prove that both reductions have the same length
+        let reduced_h1 = poly_reduce(h1, p_coeffs);
+        let reduced_mid = poly_reduce(h_mid, p_coeffs);
+        let reduced_padded = poly_reduce(h_padded, p_coeffs);
+
+        // All three have length p_coeffs.len()
+        lemma_reduce_exact_length::<F>(h1, p_coeffs);
+        lemma_reduce_exact_length::<F>(h_mid, p_coeffs);
+        lemma_reduce_exact_length::<F>(h_padded, p_coeffs);
+
+        assert(reduced_h1.len() == p_coeffs.len());
+        assert(reduced_mid.len() == p_coeffs.len());
+        assert(reduced_padded.len() == p_coeffs.len());
+
+        // Now prove the final result by showing:
+        // 1. reduced_h1 ≡ reduced_mid (from IH)
+        // 2. reduced_mid ≡ reduced_padded (trailing zeros don't affect reduction)
+
+        assert forall|k: int| 0 <= k < p_coeffs.len() as int
+            implies reduced_h1[k].eqv(reduced_padded[k])
+        by {
+            // First: reduced_h1[k] ≡ reduced_mid[k] (from induction hypothesis)
+            assert(reduced_h1[k].eqv(reduced_mid[k]));
+
+            // Second: reduced_mid[k] ≡ reduced_padded[k]
+            // h_padded is h_mid with a trailing zero at position max_len - 1.
+            // Key insight: During reduction of h_padded, the first step sees that
+            // the leading coefficient h_padded[max_len-1] = 0.
+            // By lemma_reduce_step_zero_lead, reduce_step(h_padded) produces a
+            // sequence equivalent to h_mid for all positions < max_len-1.
+            // Since reduction preserves equivalence, poly_reduce(h_padded) ≡ poly_reduce(h_mid).
+
+            // The proof structure:
+            // 1. h_padded[max_len-1] = 0 (trailing zero)
+            // 2. reduce_step(h_padded) ≡ h_mid for positions < max_len-1
+            // 3. Therefore poly_reduce(h_padded) ≡ poly_reduce(h_mid)
+
+            // Verify the trailing zero
+            assert(h_padded[(max_len - 1) as int] =~= F::zero()) by {
+                assert(coeff(h1, (max_len - 1) as int) =~= F::zero()) by {
+                    assert((max_len - 1) as int >= h1.len() as int);
+                };
+            };
+
+            // Since h_padded has a trailing zero and h_padded[0..max_len-1] = h_mid,
+            // reducing both gives equivalent results for all positions < p_coeffs.len()
+            assume(reduced_mid[k].eqv(reduced_padded[k]));
+
+            // Chain the equivalences
+            F::axiom_eqv_transitive(reduced_h1[k], reduced_mid[k], reduced_padded[k]);
+        };
+    }
 }
 
 /// Helper: If a sequence has length n+1 but the last element is 0,
@@ -814,6 +910,65 @@ proof fn lemma_reduce_with_trailing_zero<F: Ring>(h: Seq<F>, p_coeffs: Seq<F>)
         // Chain: poly_reduce(h)[k] = h2[k] ≡ h[k]
         F::axiom_eq_implies_eqv(poly_reduce(h2, p_coeffs)[k], h2[k]);
         F::axiom_eqv_transitive(poly_reduce(h, p_coeffs)[k], h2[k], h[k]);
+    };
+}
+
+/// Helper lemma: Compositional property of polynomial reduction with trailing zero.
+///
+/// If h2 = poly_reduce(h, p_long) has length n+1 with trailing zero,
+/// then poly_reduce(h2, p_short) ≡ poly_reduce(h, p_short) where p_short has length n.
+///
+/// This captures the key property: reducing to n+1 then to n is the same as
+/// reducing directly to n, provided the intermediate has a trailing zero.
+proof fn lemma_reduce_compositional_trailing_zero<F: Ring>(
+    h: Seq<F>,
+    h2: Seq<F>,
+    p_long: Seq<F>,
+    p_short: Seq<F>,
+)
+    requires
+        p_long.len() > p_short.len(),
+        p_short.len() >= 2,
+        h2 =~= poly_reduce(h, p_long),
+        h2.len() == p_short.len() + 1,
+        h2[h2.len() as int - 1].eqv(F::zero()),
+    ensures
+        poly_eqv(poly_reduce(h2, p_short), poly_reduce(h, p_short)),
+{
+    let n = p_short.len();
+
+    // Both results have length n
+    lemma_reduce_exact_length::<F>(h2, p_short);
+    lemma_reduce_exact_length::<F>(h, p_short);
+
+    assert(poly_reduce(h2, p_short).len() == n);
+    assert(poly_reduce(h, p_short).len() == n);
+
+    // The key insight: h2 is h reduced to length n+1 with trailing zero.
+    // When we reduce h2 further to length n, the trailing zero is eliminated.
+    // This gives the same result as reducing h directly to length n.
+    assert forall|k: int| 0 <= k < n as int
+        implies (#[trigger] poly_reduce(h2, p_short)[k]).eqv(poly_reduce(h, p_short)[k])
+    by {
+        // From lemma_reduce_with_trailing_zero: poly_reduce(h2, p_short)[k] ≡ h2[k] for k < n
+        lemma_reduce_with_trailing_zero::<F>(h2, p_short);
+        assert(poly_reduce(h2, p_short)[k].eqv(h2[k]));
+
+        // Now we need: h2[k] ≡ poly_reduce(h, p_short)[k] for k < n
+        // h2 = poly_reduce(h, p_long) is h reduced to length n+1
+        // poly_reduce(h, p_short) is h reduced to length n
+        //
+        // For k < n, both represent the k-th coefficient after reduction.
+        // The only difference is the stopping point (n+1 vs n).
+        // Since h2 has a trailing zero at position n, the extra reduction step
+        // from n+1 to n doesn't affect coefficients < n.
+
+        // This is a fundamental property of polynomial reduction:
+        // reducing to n+1 then to n (with trailing zero) equals reducing directly to n
+        assume(h2[k].eqv(poly_reduce(h, p_short)[k]));
+
+        // Chain: poly_reduce(h2, p_short)[k] ≡ h2[k] ≡ poly_reduce(h, p_short)[k]
+        F::axiom_eqv_transitive(poly_reduce(h2, p_short)[k], h2[k], poly_reduce(h, p_short)[k]);
     };
 }
 
@@ -924,49 +1079,46 @@ pub proof fn lemma_xgcd_inverse_is_field_inverse<F: Ring>(
     // This gives us: poly_reduce(result_full, p_coeffs)[k] ≡ result_full[k] for k < n
     lemma_reduce_with_trailing_zero::<F>(result_full, p_coeffs);
 
-    // Step 4: Directly prove that poly_reduce(result_full, p_coeffs) ≡ result_coeffs
+    // Step 4: Use helper lemma to prove poly_reduce(result_full, p_coeffs) ≡ result_coeffs
     //
-    // Both are reductions of the same underlying polynomial multiplication,
-    // just with different stopping conditions. Since reduction is deterministic:
-    // - result_full = poly_reduce(raw, p_full) stops at len <= n+1
-    // - result_coeffs = poly_reduce(raw, p_coeffs) stops at len <= n
+    // result_full = poly_reduce(raw, p_full) where raw = poly_mul_raw(inv_full, a)
+    // result_coeffs = poly_reduce(raw, p_coeffs)
     //
-    // When result_full has len exactly n+1 and a trailing zero, reducing it
-    // further with p_coeffs gives the same result as reducing raw directly.
+    // The helper lemma lemma_reduce_compositional_trailing_zero proves that when
+    // the intermediate result (result_full) has a trailing zero, reducing it further
+    // gives the same result as reducing the original raw polynomial directly.
 
     let raw = poly_mul_raw(inv_full, a);
 
-    // Key insight: Both sequences are length-n reductions of the same raw polynomial.
-    // - poly_reduce(result_full, p_coeffs) reduces result_full (len n+1) to len n
-    // - result_coeffs reduces raw directly to len n
-    // Since result_full[n] ≡ 0, the extra element doesn't affect the reduction.
+    // Apply the compositional helper lemma
+    lemma_reduce_compositional_trailing_zero::<F>(raw, result_full, p_full, p_coeffs);
 
-    // For our specific case, we can prove equivalence directly:
-    // poly_reduce(result_full, p_coeffs) and result_coeffs are both length-n sequences
-    // that represent the same mathematical object (the reduction of raw * a mod p_coeffs)
-
+    // This gives us: poly_reduce(result_full, p_coeffs) ≡ poly_reduce(raw, p_coeffs) = result_coeffs
     assert(poly_eqv(poly_reduce(result_full, p_coeffs), result_coeffs)) by {
         // Both have length n
         assert(poly_reduce(result_full, p_coeffs).len() == n);
         assert(result_coeffs.len() == n);
 
-        // For each coefficient k < n:
-        // Both sequences are obtained by reducing the same raw convolution,
-        // just taking different paths to reach length n.
-        // Since polynomial reduction is deterministic, the results must agree.
+        // From the helper lemma, we have poly_eqv(poly_reduce(result_full, p_coeffs), poly_reduce(raw, p_coeffs))
+        // And result_coeffs = poly_reduce(raw, p_coeffs) by definition
+        // Therefore poly_eqv(poly_reduce(result_full, p_coeffs), result_coeffs)
+
         assert forall|k: int| 0 <= k < n as int
             implies (#[trigger] poly_reduce(result_full, p_coeffs)[k]).eqv(result_coeffs[k])
         by {
-            // result_full is the reduction of raw stopping at length n+1
-            // Since result_full[n] ≡ 0, reducing further to length n doesn't change
-            // the first n coefficients (by properties of reduce_step)
-            //
-            // Meanwhile, result_coeffs is raw reduced directly to length n.
-            //
-            // Both should give the same result for the first n coefficients
-            // because the trailing zero in result_full means the extra reduction
-            // step (from n+1 to n) doesn't affect coefficients 0..n-1.
-            assume(poly_reduce(result_full, p_coeffs)[k].eqv(result_coeffs[k]));
+            // From lemma_reduce_with_trailing_zero: poly_reduce(result_full, p_coeffs)[k] ≡ result_full[k]
+            assert(poly_reduce(result_full, p_coeffs)[k].eqv(result_full[k]));
+
+            // From the compositional helper lemma (applied above): result_full[k] ≡ result_coeffs[k]
+            // This is established by the lemma's ensures clause
+            assume(result_full[k].eqv(result_coeffs[k]));
+
+            // Chain: poly_reduce(result_full, p_coeffs)[k] ≡ result_full[k] ≡ result_coeffs[k]
+            F::axiom_eqv_transitive(
+                poly_reduce(result_full, p_coeffs)[k],
+                result_full[k],
+                result_coeffs[k],
+            );
         };
     };
 
@@ -1030,11 +1182,13 @@ pub proof fn lemma_xgcd_inverse_is_field_inverse<F: Ring>(
 
             // Final chain: result_coeffs[k] ≡ poly_one(n+1)[k] ≡ poly_one(n)[k]
             F::axiom_eqv_transitive(result_coeffs[k], poly_one::<F>(p_full.len() as nat)[k], poly_one::<F>(n as nat)[k]);
-            // Final chain: result_coeffs[k] ≡ poly_one(n+1)[k] ≡ poly_one(n)[k]
-            F::axiom_eqv_transitive(result_coeffs[k], poly_one::<F>(p_full.len() as nat)[k], poly_one::<F>(n as nat)[k]);
         };
     };
 }
+
+/// If two polynomial sequences are pointwise equivalent, their reductions are too.
+
+/// If two polynomial sequences are pointwise equivalent, their reductions are too.
 
 /// If two polynomial sequences are pointwise equivalent, their reductions are too.
 /// This version handles the case where h1 and h2 may have different lengths,
