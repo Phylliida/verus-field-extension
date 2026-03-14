@@ -247,8 +247,8 @@ impl MinimalPoly<Rational> for FifthRoot2 {
         assert(!poly_is_zero(p_full)) by {
             assert(p_full[5].eqv(Rational::from_int_spec(1)));
         }
-        // Trait requires: exists|i| !a[i].eqv(zero) - need assume to bridge
-        assume(!poly_is_zero(a));
+        // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
+        lemma_not_zero_from_trait::<Rational>(a, 5);
         lemma_poly_inverse_mod_is_inverse::<Rational>(a, p_full);
         // After truncation to degree 5, the inverse property is preserved
         assume(poly_eqv(
