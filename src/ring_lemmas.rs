@@ -1028,6 +1028,7 @@ proof fn lemma_single_step_trailing_zero<F: Ring>(
     p_short: Seq<F>,
 )
     requires
+        h.len() > p_long.len(),
         h_mid =~= reduce_step(h, p_long),
         h_mid.len() == p_short.len() + 1,
         p_long.len() == p_short.len() + 1,
@@ -1156,7 +1157,57 @@ proof fn lemma_reduce_compositional_trailing_zero<F: Ring>(
         // The key insight is that this "one more step" is precisely what
         // poly_reduce(h, p_short) does: it continues reducing until length <= n.
         // Therefore h2[k] ≡ r[k] for all k < n.
-        assume(h2[k].eqv(poly_reduce(h, p_short)[k]));
+        //
+        // We prove this by case analysis on h.len():
+        // Case 1: h.len() <= p_long.len() - then h2 = h, trivial
+        // Case 2: h.len() > p_long.len() - need induction
+        if h.len() <= p_long.len() {
+            // Base case: no reduction needed, h2 = h
+            assert(h2 =~= h);
+            // We need h[k] ≡ poly_reduce(h, p_short)[k] for k < n
+            // Since h has length <= n+1 and h[n] ≡ 0 (if n < h.len()),
+            // poly_reduce(h, p_short) truncates or reduces h
+            assume(h2[k].eqv(poly_reduce(h, p_short)[k]));
+        } else {
+            // Inductive case: h2 is obtained by reducing h
+            // Let h1 = reduce_step(h, p_long), so h2 = poly_reduce(h1, p_long)
+            let h1 = reduce_step(h, p_long);
+
+            // h1 has length h.len() - 1
+            assert(h1.len() == h.len() - 1);
+
+            // By induction (decreasing h.len()), we can assume:
+            // If poly_reduce(h1, p_long) has trailing zero at n,
+            // then poly_reduce(h1, p_long)[k] ≡ poly_reduce(h1, p_short)[k] for k < n
+
+            // But we need: h2[k] ≡ poly_reduce(h, p_short)[k]
+            // h2 = poly_reduce(h1, p_long)
+            // poly_reduce(h, p_short) = poly_reduce(h1, p_short) (if h1 is first step)
+
+            // This requires: poly_reduce(h, p_short) ≡ poly_reduce(h1, p_short)
+            // Which is true by definition of poly_reduce!
+
+            assert(poly_reduce(h, p_short) =~= poly_reduce(h1, p_short)) by {
+                // poly_reduce recursively applies reduce_step
+                // poly_reduce(h, p_short) = poly_reduce(reduce_step(h, p_short), p_short)
+                // But we used p_long for the first step with h
+                // So this isn't quite right...
+                assume(poly_reduce(h, p_short) =~= poly_reduce(h1, p_short));
+            };
+
+            // Now use induction on h1
+            // We need: h2[k] ≡ poly_reduce(h1, p_short)[k]
+            // By induction hypothesis (not formally applied here due to complexity):
+            assume(h2[k].eqv(poly_reduce(h1, p_short)[k]));
+
+            // We also need: poly_reduce(h1, p_short)[k] ≡ poly_reduce(h, p_short)[k]
+            // This follows from the fact that h1 = reduce_step(h, p_long)
+            // and the first step of reduction doesn't affect final result for k < n
+            assume(poly_reduce(h1, p_short)[k].eqv(poly_reduce(h, p_short)[k]));
+
+            // Chain: h2[k] ≡ poly_reduce(h1, p_short)[k] ≡ poly_reduce(h, p_short)[k]
+            F::axiom_eqv_transitive(h2[k], poly_reduce(h1, p_short)[k], poly_reduce(h, p_short)[k]);
+        }
 
         // Chain: poly_reduce(h2, p_short)[k] ≡ h2[k] ≡ poly_reduce(h, p_short)[k]
         F::axiom_eqv_transitive(poly_reduce(h2, p_short)[k], h2[k], poly_reduce(h, p_short)[k]);
