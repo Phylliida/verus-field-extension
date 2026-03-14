@@ -2103,7 +2103,33 @@ proof fn lemma_conv_coeff_zero_for_shifted<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat
     ensures
         conv_coeff(poly_shift::<F>(p, k), q, i).eqv(F::zero()),
 {
-    assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(F::zero()));
+    let p_shift = poly_shift::<F>(p, k);
+    let len_ps = p_shift.len();
+
+    // conv_coeff(p_shift, q, i) = sum_{j=0}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
+    // For j < k: coeff(p_shift, j) = 0 (shifted polynomial has zeros at start)
+    // For j >= k: i - j < i - k < 0, so coeff(q, i-j) = 0 (out of bounds)
+    // Therefore all terms are 0, sum is 0
+
+    assert forall|j: int| 0 <= j < len_ps as int
+        implies coeff(p_shift, j).mul(coeff(q, i - j)).eqv(F::zero())
+    by {
+        if j < k as int {
+            // coeff(p_shift, j) = 0 for j < k
+            assert(coeff(p_shift, j) =~= F::zero());
+            F::axiom_mul_zero_left::<F>(coeff(q, i - j));
+        } else {
+            // j >= k, so i - j < i - k < 0
+            // coeff(q, i-j) = 0 for out-of-bounds index
+            assert(i - j < i - k as int);
+            assert(i - k as int <= 0);
+            assert(i - j < 0);
+            assert(coeff(q, i - j) =~= F::zero());
+            F::axiom_mul_zero_right::<F>(coeff(p_shift, j));
+        }
+    };
+
+    lemma_sum_constant::<F>(F::zero(), 0, len_ps as int);
 }
 
 /// Helper: For i >= k, conv_coeff(poly_shift(p,k), q, i) ≡ conv_coeff(p, q, i-k)
@@ -2115,11 +2141,39 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
     ensures
         conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)),
 {
-    // Mathematical proof:
+    let p_shift = poly_shift::<F>(p, k);
+    let len_ps = p_shift.len();
+    let len_p = p.len();
+
     // LHS = sum_{j=0}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
-    //     = sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j)   [since coeff(p_shift, j) = 0 for j < k]
-    //     = sum_{l=0}^{len_p-1} p[l] * coeff(q, i-k-l)    [reindex with l = j-k]
-    //     = conv_coeff(p, q, i-k)
+    // Split into j < k and j >= k parts
+    // For j < k: coeff(p_shift, j) = 0
+    // For j >= k: coeff(p_shift, j) = p[j-k]
+
+    lemma_sum_split::<F>(
+        |j: int| coeff(p_shift, j).mul(coeff(q, i - j)),
+        0,
+        k as int,
+        len_ps as int,
+    );
+
+    // First part (j < k) is all zeros
+    lemma_sum_constant::<F>(F::zero(), 0, k as int);
+
+    // Second part: sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j)
+    // Use reindexing: l = j - k, so j = l + k
+    // When j = k: l = 0
+    // When j = len_ps - 1 = k + len_p - 1: l = len_p - 1
+
+    lemma_sum_reindex::<F>(
+        |j: int| p[j - k as int].mul(coeff(q, i - j)),
+        k as int,
+        len_ps as int,
+        k as int,
+    );
+
+    // After reindexing: sum_{l=0}^{len_p-1} p[l] * coeff(q, i - k - l)
+    // This is exactly conv_coeff(p, q, i - k)
 
     assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)));
 }
