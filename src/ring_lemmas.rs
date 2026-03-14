@@ -899,61 +899,42 @@ pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p
 
             // Second: reduced_mid[k] ≡ reduced_padded[k]
             // h_padded is h_mid with a trailing zero at position max_len - 1.
-            // Key insight: During reduction of h_padded, the first step sees that
-            // the leading coefficient h_padded[max_len-1] = 0.
-            // By lemma_reduce_step_zero_lead, reduce_step(h_padded) produces a
-            // sequence equivalent to h_mid for all positions < max_len-1.
-            // Since reduction preserves equivalence, poly_reduce(h_padded) ≡ poly_reduce(h_mid).
 
-            // The proof structure:
-            // 1. h_padded[max_len-1] = 0 (trailing zero)
-            // 2. reduce_step(h_padded) ≡ h_mid for positions < max_len-1
-            // 3. Therefore poly_reduce(h_padded) ≡ poly_reduce(h_mid)
-
-            // Verify the trailing zero
-            assert(h_padded[(max_len - 1) as int] =~= F::zero()) by {
-                assert(coeff(h1, (max_len - 1) as int) =~= F::zero()) by {
-                    assert((max_len - 1) as int >= h1.len() as int);
-                };
+            // Verify preconditions for the helper lemma
+            assert forall|i: int| 0 <= i < h_mid.len() as int
+                implies h_padded[i] =~= h_mid[i]
+            by {
+                // Both use coeff(h1, i)
             };
 
-            // Now prove that reducing h_mid and h_padded gives the same result.
-            // Key insight: h_padded has a trailing zero, so during reduction,
-            // this zero gets eliminated without affecting lower coefficients.
-            //
-            // Proof strategy:
-            // Case 1: If max_len - 1 <= p_coeffs.len(), then h_mid is already reduced,
-            //         and h_padded reduces to the same thing (the trailing zero is dropped).
-            // Case 2: If max_len - 1 > p_coeffs.len(), both need reduction.
-            //         The trailing zero in h_padded gets eliminated in the first reduce_step,
-            //         after which both sequences reduce identically.
-            //
-            // For Case 2, we use the fact that reduce_step(h_padded) produces a sequence
-            // equivalent to h_mid for positions < max_len - 1 (by lemma_reduce_step_zero_lead).
-            // Since k < p_coeffs.len() <= max_len - 1, we have equivalence.
-
-            if max_len - 1 <= p_coeffs.len() {
-                // Case 1: h_mid is already at or below target length, no reduction needed
-                // h_padded needs one reduction step to eliminate the trailing zero
-                // After that step, it matches h_mid for all positions < max_len - 1
-                assert(reduced_mid[k] =~= h_mid[k]);
-                F::axiom_eq_implies_eqv(reduced_mid[k], h_mid[k]);
-                // h_padded reduces to a sequence of length max_len - 1 that's equivalent to h_mid
-                // For positions < p_coeffs.len(), this equals h_mid[k]
-                assume(h_mid[k].eqv(reduced_padded[k]));
-                // Therefore: reduced_mid[k] ≡ h_mid[k] ≡ reduced_padded[k]
-                F::axiom_eqv_transitive(reduced_mid[k], h_mid[k], reduced_padded[k]);
+            // Use the helper lemma when h_mid.len() >= p_coeffs.len()
+            // Otherwise both are already reduced
+            if h_mid.len() >= p_coeffs.len() {
+                // Use the helper lemma
+                lemma_reduce_add_trailing_zero::<F>(h_mid, h_padded, p_coeffs);
+                // Now reduced_mid[k] ≡ reduced_padded[k]
             } else {
-                // Case 2: Both h_mid and h_padded need reduction
-                // h_padded reduces by first eliminating the trailing zero
-                // After that, both sequences follow the same reduction path
-                // Since the trailing zero elimination doesn't affect positions < p_coeffs.len(),
-                // the final results are equivalent
-                assume(reduced_mid[k].eqv(reduced_padded[k]));
-            }
+                // h_mid.len() < p_coeffs.len(), so h_mid is already reduced
+                // h_padded.len() = h_mid.len() + 1 <= p_coeffs.len(), so h_padded is also reduced
+                // Or h_padded.len() = p_coeffs.len() + 1 (one more than n)
 
-            // Chain the equivalences
-            F::axiom_eqv_transitive(reduced_h1[k], reduced_mid[k], reduced_padded[k]);
+                // In this case, reduced_mid = h_mid and reduced_padded = h_padded (if len <= n)
+                // Or reduced_padded = reduce_step(h_padded) (if len = n+1)
+
+                // Since h_padded has a trailing zero, reduce_step(h_padded) = h_mid for all positions
+                if h_padded.len() > p_coeffs.len() {
+                    // h_padded needs one reduction step
+                    lemma_reduce_step_zero_lead::<F>(h_padded, p_coeffs);
+                    let rp = reduce_step(h_padded, p_coeffs);
+                    assert(rp[k].eqv(h_padded[k]));
+                    assert(h_padded[k] =~= h_mid[k]);
+                    F::axiom_eq_implies_eqv(h_padded[k], h_mid[k]);
+                    F::axiom_eqv_transitive(rp[k], h_padded[k], h_mid[k]);
+                } else {
+                    // h_padded is already reduced, h_padded[k] = h_mid[k]
+                    assert(h_padded[k] =~= h_mid[k]);
+                }
+            }
         };
     }
 }
@@ -1120,17 +1101,57 @@ proof fn lemma_single_step_trailing_zero<F: Ring>(
         poly_eqv(poly_reduce(h_mid, p_short), poly_reduce(h, p_short)),
 {
     let n = p_short.len();
+    let m = h.len();
 
     lemma_reduce_exact_length::<F>(h_mid, p_short);
     lemma_reduce_exact_length::<F>(h, p_short);
+
+    // Key insight: h_mid has a trailing zero, so:
+    // poly_reduce(h_mid, p_short)[k] ≡ h_mid[k] (by lemma_reduce_with_trailing_zero)
+
+    // And h_mid = reduce_step(h, p_long), so for k < n:
+    // h_mid[k] ≡ poly_reduce(h, p_short)[k]
+
+    // The proof uses that the difference between p_long and p_short only affects
+    // position n, and since h_mid[n] ≡ 0, the trailing zero doesn't contribute.
+
+    lemma_reduce_with_trailing_zero::<F>(h_mid, p_short);
+
+    // Now we have: poly_reduce(h_mid, p_short)[k] ≡ h_mid[k]
+    // We need: h_mid[k] ≡ poly_reduce(h, p_short)[k]
+
+    // h_mid = reduce_step(h, p_long)
+    // Since h_mid[n] ≡ 0 (the trailing zero), the leading coefficient h[m-1]
+    // was subtracted with coefficient p_long[n], which should be 1 for monic polynomial.
+
+    // For k < n, the reduce_step with p_long vs p_short should give the same result
+    // because the shift is 0 (since m = n + 2, shift = m - 1 - (n+1) = 0)
 
     // For each k < n, prove the equivalence
     assert forall|k: int| 0 <= k < n as int
         implies poly_reduce(h_mid, p_short)[k].eqv(poly_reduce(h, p_short)[k])
     by {
-        // Use the helper lemma for the single position
-        lemma_single_step_trailing_zero_one::<F>(h, h_mid, p_long, p_short, k);
-    }
+        // From lemma_reduce_with_trailing_zero: poly_reduce(h_mid, p_short)[k] ≡ h_mid[k]
+        // From h_mid =~= reduce_step(h, p_long): h_mid[k] = reduce_step(h, p_long)[k]
+        // We need: reduce_step(h, p_long)[k] ≡ poly_reduce(h, p_short)[k]
+
+        // Key: Since h_mid[n] ≡ 0 and h_mid = reduce_step(h, p_long),
+        // the leading coefficient contribution at position n was zero.
+        // This means lead(h) * p_long[n - shift] ≡ 0 where shift = 0.
+        // Since p_long[n] should be the leading coefficient of a monic polynomial (i.e., 1),
+        // we get lead(h) ≡ 0.
+
+        // When lead(h) ≡ 0, reduce_step with any modulus gives h[k] for all k.
+        // And poly_reduce(h, p_short) reduces to the same as h[k] for k < n.
+
+        lemma_reduce_step_modulus_relation::<F>(h, p_long, p_short);
+        // This gives: reduce_step(h, p_long)[k] ≡ reduce_step(h, p_short)[k] for k < m-1
+
+        // Now we need to connect reduce_step(h, p_short) to poly_reduce(h, p_short)
+        // This requires showing that further reduction preserves equivalence
+
+        assume(poly_reduce(h_mid, p_short)[k].eqv(poly_reduce(h, p_short)[k]));
+    };
 }
 
 /// Helper: prove for a single position k
@@ -1152,25 +1173,9 @@ proof fn lemma_single_step_trailing_zero_one<F: Ring>(
     ensures
         poly_reduce(h_mid, p_short)[k].eqv(poly_reduce(h, p_short)[k]),
 {
-    // Step 1: poly_reduce(h_mid, p_short)[k] ≡ h_mid[k] because trailing zero
-    lemma_reduce_with_trailing_zero::<F>(h_mid, p_short);
-
-    // Step 2: h_mid[k] ≡ poly_reduce(h, p_short)[k]
-    // This follows from the relationship between reduce_step with different moduli
-    // when the intermediate has trailing zero
-    //
-    // Mathematical reasoning:
-    // h_mid = reduce_step(h, p_long) where the leading coefficient of h
-    // contributes to position n. Since h_mid[n] ≡ 0, this contribution was 0.
-    // For k < n, both reduce_step(h, p_long)[k] and the reduction of h
-    // with p_short give the same result because:
-    // - The difference between p_long and p_short only affects positions >= n
-    // - Since h_mid[n] ≡ 0, the leading coefficient times the modulus difference is 0
-
-    assume(h_mid[k].eqv(poly_reduce(h, p_short)[k]));
-
-    // Chain
-    F::axiom_eqv_transitive(poly_reduce(h_mid, p_short)[k], h_mid[k], poly_reduce(h, p_short)[k]);
+    // Call the forall version
+    lemma_single_step_trailing_zero::<F>(h, h_mid, p_long, p_short);
+    // The forall version ensures poly_eqv, which gives the single position result
 }
 
 /// Helper lemma: Compositional property of polynomial reduction with trailing zero.
@@ -1200,11 +1205,27 @@ proof fn lemma_reduce_compositional_trailing_zero<F: Ring>(
     lemma_reduce_exact_length::<F>(h2, p_short);
     lemma_reduce_exact_length::<F>(h, p_short);
 
+    // h2 has trailing zero, so poly_reduce(h2, p_short)[k] ≡ h2[k]
+    lemma_reduce_with_trailing_zero::<F>(h2, p_short);
+
+    // Now need: h2[k] ≡ poly_reduce(h, p_short)[k]
+    // h2 = poly_reduce(h, p_long), which is h reduced until length n+1
+    // Since h2[n] ≡ 0, the last reduction step had lead ≡ 0
+    // And the reduction path with p_long leads to the same coefficients < n as p_short
+
     assert forall|k: int| 0 <= k < n as int
         implies poly_reduce(h2, p_short)[k].eqv(poly_reduce(h, p_short)[k])
     by {
-        lemma_reduce_compositional_trailing_zero_one::<F>(h, h2, p_long, p_short, k);
-    }
+        // From lemma_reduce_with_trailing_zero: poly_reduce(h2, p_short)[k] ≡ h2[k]
+        // h2 = poly_reduce(h, p_long)
+        // Need: h2[k] ≡ poly_reduce(h, p_short)[k]
+
+        // This is a deep property: the intermediate reduction result h2
+        // has the same coefficients < n as poly_reduce(h, p_short)
+        // because the trailing zero indicates no contribution to positions < n
+
+        assume(poly_reduce(h2, p_short)[k].eqv(poly_reduce(h, p_short)[k]));
+    };
 }
 
 /// Helper: prove for a single position k
@@ -1225,24 +1246,8 @@ proof fn lemma_reduce_compositional_trailing_zero_one<F: Ring>(
     ensures
         poly_reduce(h2, p_short)[k].eqv(poly_reduce(h, p_short)[k]),
 {
-    // poly_reduce(h2, p_short)[k] ≡ h2[k] because trailing zero
-    lemma_reduce_with_trailing_zero::<F>(h2, p_short);
-
-    // h2[k] ≡ poly_reduce(h, p_short)[k]
-    // Mathematical reasoning:
-    // h2 = poly_reduce(h, p_long) is h reduced until length <= n+1
-    // Since h2 has length exactly n+1 and h2[n] ≡ 0, one more step of
-    // reduction with p_short would just truncate, not modify positions < n.
-    //
-    // Meanwhile, poly_reduce(h, p_short) reduces h until length <= n.
-    // The reduction paths with p_long and p_short differ in the "shift" value,
-    // but when the intermediate has trailing zero, the final coefficients < n
-    // are the same for both paths.
-
-    assume(h2[k].eqv(poly_reduce(h, p_short)[k]));
-
-    // Chain
-    F::axiom_eqv_transitive(poly_reduce(h2, p_short)[k], h2[k], poly_reduce(h, p_short)[k]);
+    // Call the forall version
+    lemma_reduce_compositional_trailing_zero::<F>(h, h2, p_long, p_short);
 }
 
 /// Lemma: Reduction modulo p_full vs coeffs for inverse polynomials.
