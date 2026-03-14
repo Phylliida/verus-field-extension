@@ -17,24 +17,37 @@
 //    E.g., `lemma_reduce_add_trailing_zero` proves that adding a trailing zero
 //    doesn't change reduction results, using `lemma_reduce_congruence`.
 //
-// 3. KEY VERUS LIMITATIONS (that lead to assumes):
+// 3. SUM MANIPULATION PATTERN:
+//    For proofs involving sums over different index ranges:
+//    - Use `lemma_sum_split` to break sums into parts
+//    - Use `lemma_sum_constant` for constant sums (especially 0)
+//    - Use `lemma_sum_reindex` for index transformations
+//    - Use `lemma_sum_congruence` when terms are pointwise equivalent
+//    - Key insight: `coeff` returns 0 for out-of-bounds indices
+//
+// 4. KEY VERUS LIMITATIONS (that lead to assumes):
 //    a) If-branch facts don't propagate to subsequent code (SMT solver limitation)
 //    b) `Seq::new` with closures is opaque to SMT - can't see through the closure
 //    c) Complex transitivity chains need explicit guidance
 //    d) Quantifier instantiation with triggers requires exact pattern matching
+//    e) Convolution associativity requires Fubini-style double-sum reordering
 //
-// 4. WORKING PATTERNS:
+// 5. WORKING PATTERNS:
 //    - `lemma_reduce_congruence`: If two sequences have same length and are
 //      pointwise equivalent, their reductions are equivalent
 //    - `lemma_reduce_step_zero_lead`: If leading coefficient is 0, reduce_step
 //      produces a sequence equivalent to the input (truncated)
 //    - `lemma_reduce_with_trailing_zero`: If a sequence has length n+1 with
 //      trailing zero, reduction to n gives the first n coefficients unchanged
+//    - For convolution with shifted polynomials:
+//      * If i < k (shift amount), conv_coeff is 0 (all terms zero)
+//      * If i >= k, use sum reindexing to show equivalence
 //
-// 5. ANTI-PATTERNS:
+// 6. ANTI-PATTERNS:
 //    - Don't create circular dependencies between "one" and forall versions
 //    - Don't try to instantiate forall inside assert forall by - use lemma call
 //    - Don't expect SMT to see through Seq::new closures
+//    - Don't try to chain more than ~3 transitivity steps without explicit help
 //
 // ═══════════════════════════════════════════════════════════════════════════════
 
