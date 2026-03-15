@@ -96,6 +96,54 @@ proof fn lemma_sum_all_zeros<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int)
     }
 }
 
+/// Sum where exactly one term is non-zero: if f(j) ≡ 0 for all j ≠ k, then sum ≡ f(k).
+proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int, k: int)
+    requires
+        lo <= k < hi,
+        forall|j: int| lo <= j < hi && j != k ==> (#[trigger] f(j)).eqv(F::zero()),
+    ensures
+        sum::<F>(f, lo, hi).eqv(f(k)),
+    decreases hi - lo,
+{
+    if hi - lo == 1 {
+        lemma_sum_single::<F>(f, lo);
+    } else if k == lo {
+        lemma_sum_peel_first::<F>(f, lo, hi);
+        lemma_sum_all_zeros::<F>(f, lo + 1, hi);
+        let rest = sum::<F>(f, lo + 1, hi);
+        let first = f(lo);
+        additive_group_lemmas::lemma_add_congruence_right::<F>(first, rest, F::zero());
+        F::axiom_add_zero_right(first);
+        assert(sum::<F>(f, lo, hi).eqv(first.add(rest))) by { lemma_sum_peel_first::<F>(f, lo, hi); }
+        assert(first.add(rest).eqv(first)) by {
+            F::axiom_eqv_transitive(first.add(rest), first.add(F::zero()), first);
+        }
+    } else if k == hi - 1 {
+        lemma_sum_peel_last::<F>(f, lo, hi);
+        lemma_sum_all_zeros::<F>(f, lo, hi - 1);
+        let last = f(hi - 1);
+        let sum_before = sum::<F>(f, lo, hi - 1);
+        F::axiom_eqv_reflexive(last);
+        additive_group_lemmas::lemma_add_congruence::<F>(sum_before, F::zero(), last, last);
+        additive_group_lemmas::lemma_add_zero_left::<F>(last);
+        assert(sum::<F>(f, lo, hi).eqv(sum_before.add(last))) by { lemma_sum_peel_last::<F>(f, lo, hi); }
+        assert(sum_before.add(last).eqv(last)) by {
+            F::axiom_eqv_transitive(sum_before.add(last), F::zero().add(last), last);
+        }
+    } else {
+        lemma_sum_peel_last::<F>(f, lo, hi);
+        lemma_sum_single_nonzero::<F>(f, lo, hi - 1, k);
+        let last = f(hi - 1);
+        let sum_before = sum::<F>(f, lo, hi - 1);
+        additive_group_lemmas::lemma_add_congruence::<F>(sum_before, f(k), last, F::zero());
+        F::axiom_add_zero_right(f(k));
+        assert(sum::<F>(f, lo, hi).eqv(sum_before.add(last))) by { lemma_sum_peel_last::<F>(f, lo, hi); }
+        assert(sum_before.add(last).eqv(f(k))) by {
+            F::axiom_eqv_transitive(sum_before.add(last), f(k).add(F::zero()), f(k));
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //  Phase 3: Reduce of p_full multiple gives zero
 // ═══════════════════════════════════════════════════════════════════
