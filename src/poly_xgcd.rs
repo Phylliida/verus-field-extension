@@ -1235,10 +1235,23 @@ pub proof fn lemma_div_step_correct<F: Field>(a: Seq<F>, b: Seq<F>)
     // By definition of poly_div_step:
     // new_a = poly_sub(a, term) where term = poly_shift(poly_scale(b, lead_coeff), lead_deg)
     // This is exactly what the ensures clause states.
-    assume(poly_eqv(
-        poly_div_step(a, b).2,
-        poly_sub(a, poly_shift(poly_scale(b, poly_div_step(a, b).0), poly_div_step(a, b).1))
-    ));
+
+    let (lead_coeff, lead_deg, new_a) = poly_div_step(a, b);
+
+    // The definition gives us:
+    // new_a = poly_sub(a, poly_shift(poly_scale(b, lead_coeff), lead_deg))
+
+    // So new_a is literally equal to the RHS in the ensures clause
+    // poly_eqv checks pointwise equivalence, which holds trivially for equal sequences
+    assert(new_a =~= poly_sub(a, poly_shift(poly_scale(b, lead_coeff), lead_deg)));
+
+    // For equal sequences, poly_eqv holds trivially
+    assert forall|i: int| 0 <= i < new_a.len() as int
+        implies new_a[i].eqv(poly_sub(a, poly_shift(poly_scale(b, lead_coeff), lead_deg))[i])
+    by {
+        assert(new_a[i] =~= poly_sub(a, poly_shift(poly_scale(b, lead_coeff), lead_deg))[i]);
+        F::axiom_eq_implies_eqv(new_a[i], poly_sub(a, poly_shift(poly_scale(b, lead_coeff), lead_deg))[i]);
+    };
 }
 
 /// Lemma: Division step cancels leading coefficient
@@ -1255,21 +1268,48 @@ proof fn lemma_div_step_lead_cancels<F: Field>(a: Seq<F>, b: Seq<F>)
     let da = poly_deg(a);
     let db = poly_deg(b);
 
-    // lead_coeff = lc(a) * lc(b)^{-1}
-    // lead_deg = da - db
-    // new_a = a - shift(scale(b, lead_coeff), lead_deg)
-
-    // The leading coefficient of a
     let lc_a = a[da];
     let lc_b = b[db];
 
-    // lead_coeff = lc_a * lc_b^{-1}
-    // term = shift(scale(b, lead_coeff), lead_deg)
-    // term[da] = scale(b, lead_coeff)[da - lead_deg] = b[db] * lead_coeff
-    //          = lc_b * lc_a * lc_b^{-1} = lc_a
+    assert(lead_deg == (da - db) as nat);
+    assert(b.len() as int == db + 1);
+    assert(a.len() as int == da + 1);
 
-    // new_a[da] = a[da] - term[da] = lc_a - lc_a = 0
-    assume(new_a[new_a.len() as int - 1].eqv(F::zero()));
+    assert(new_a.len() == a.len());
+    let last_idx = new_a.len() as int - 1;
+    assert(last_idx == da);
+
+    let term = poly_shift(poly_scale(b, lead_coeff), lead_deg);
+
+    lemma_poly_shift_coeff::<F>(poly_scale(b, lead_coeff), lead_deg, da as int);
+
+    assert(term[da].eqv(poly_scale(b, lead_coeff)[db]));
+
+    assert(da >= lead_deg as int);
+    assert(da - lead_deg as int == db);
+
+    F::axiom_mul_associative(lc_b, lc_a, lc_b.recip());
+    F::axiom_mul_commutative(lc_b, lc_a);
+    F::axiom_mul_associative(lc_a, lc_b, lc_b.recip());
+
+    F::axiom_mul_recip_right(lc_b);
+    F::axiom_mul_one_right(lc_a);
+
+    assert(term[da].eqv(lc_a));
+
+    broadcast use group_seq_axioms;
+
+    assert(da < a.len() as int);
+    assert(da < term.len() as int);
+    assert(coeff(a, da) =~= a[da]);
+    assert(coeff(term, da) =~= term[da]);
+
+    assert(new_a =~= poly_sub(a, term));
+
+    additive_group_lemmas::lemma_sub_congruence::<F>(a[da], a[da], term[da], lc_a);
+    additive_group_lemmas::lemma_sub_self::<F>(a[da]);
+
+    assert(a[da].sub(term[da]).eqv(F::zero()));
 }
 
 /// Lemma: Division step reduces degree
