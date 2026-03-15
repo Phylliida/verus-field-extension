@@ -1719,34 +1719,18 @@ proof fn lemma_poly_mul_raw_decomposition<F: Ring>(
     assert forall|k: int| 0 <= k < raw.len() as int
         implies raw[k].eqv(sum_pf[k])
     by {
-        // Expand raw[k] using convolution definition
-        // raw[k] = conv_coeff(pf, c, k) = sum_{l=0}^{n} pf[l] * coeff(c, k-l)
-
-        // Expand sum_pf[k] using the definition of partial_p_full_sum
-        // sum_pf = sum_{j=0}^{n-1} c[j] * shift(pf, j)
-        // For each j, shift(pf, j)[k] = pf[k-j] if k >= j, else 0
-
-        // So sum_pf[k] = sum_{j=0}^{n-1} c[j] * (if k >= j then pf[k-j] else 0)
-        //              = sum_{j=0}^{min(k, n-1)} c[j] * pf[k-j]
+        // The key insight: both raw[k] and sum_pf[k] compute the same convolution
+        // raw[k] = conv_coeff(pf, c, k) = sum_{l} coeff(pf,l) * coeff(c, k-l)
+        // sum_pf[k] = sum_{j} c[j] * shift(pf,j)[k]
         //
-        // Change of variable: l = k-j, so j = k-l
-        // When j = 0: l = k
-        // When j = min(k, n-1): l = k - min(k, n-1)
+        // For each j, shift(pf,j)[k] = pf[k-j] when k >= j, else 0
+        // So sum_pf[k] = sum_{j=0}^{min(k,n-1)} c[j] * pf[k-j]
         //
-        // If k < n-1: sum_{l=k-k}^{k} pf[l] * coeff(c, k-l) = sum_{l=0}^{k} pf[l] * coeff(c, k-l)
-        // If k >= n-1: sum_{l=k-(n-1)}^{k} pf[l] * coeff(c, k-l)
+        // In the convolution: coeff(c, k-l) = c[k-l] when 0 <= k-l < n, else 0
+        // So raw[k] = sum_{l: k-n+1 <= l <= k} pf[l] * c[k-l]
         //
-        // Meanwhile, conv_coeff(pf, c, k) = sum_{l=0}^{n} pf[l] * coeff(c, k-l)
-        //
-        // The ranges differ! conv_coeff includes l from 0 to n, while sum_pf only includes
-        // a subset. However, coeff(c, k-l) = 0 when k-l is out of bounds.
-        // c has length n, so coeff(c, k-l) = 0 when k-l < 0 or k-l >= n, i.e., l > k or l <= k-n.
-        //
-        // So the effective range for conv_coeff is max(0, k-n+1) to min(n, k).
-        // This matches the range for sum_pf!
-
-        // The equivalence follows from the observation that both sums compute the same
-        // convolution value, just with different index variables and range expressions.
+        // With change of variable m = k-l: sum over m from 0 to min(k,n-1)
+        // These are the same sum!
         assume(raw[k].eqv(sum_pf[k]));
     }
 }
@@ -1832,6 +1816,68 @@ proof fn lemma_reduce_p_full_conv_zero_by_decomposition<F: Ring>(
     }
 }
 
+/// Lemma: partial_p_full_sum has exact length 2n when starting from j < n.
+/// When j >= n, the sum is zero polynomial with length n.
+proof fn lemma_partial_p_full_sum_length_exact<F: Ring>(
+    c: Seq<F>, p_coeffs: Seq<F>, j: nat,
+)
+    requires
+        p_coeffs.len() >= 1,
+        c.len() == p_coeffs.len(),
+        j <= c.len(),
+    ensures
+        ({
+            let n = p_coeffs.len();
+            let sum_pf = partial_p_full_sum(c, p_coeffs, j);
+            if j >= n {
+                sum_pf.len() == n
+            } else {
+                sum_pf.len() == 2 * n
+            }
+        }),
+    decreases (c.len() - j) as int,
+{
+    let n = p_coeffs.len();
+
+    if j >= n {
+        let sum_pf = partial_p_full_sum(c, p_coeffs, j);
+        assert(sum_pf.len() == n);
+    } else if j == n - 1 {
+        // Base case: sum = poly_add(term_{n-1}, poly_zero(n))
+        let pf = p_full_seq(p_coeffs);
+        let term = poly_scalar_mul(c[j as int], poly_shift::<F>(pf, j));
+        let rest = partial_p_full_sum(c, p_coeffs, (j + 1) as nat);
+        let sum_pf = partial_p_full_sum(c, p_coeffs, j);
+
+        // term has length n + 1 + j = n + 1 + (n-1) = 2n
+        assert(term.len() == 2 * n);
+        // rest has length n
+        assert(rest.len() == n);
+        // poly_add takes max
+        assert(sum_pf.len() == 2 * n);
+    } else {
+        // j < n - 1: sum = poly_add(term_j, sum_{j+1})
+        let pf = p_full_seq(p_coeffs);
+        let term = poly_scalar_mul(c[j as int], poly_shift::<F>(pf, j));
+        let rest = partial_p_full_sum(c, p_coeffs, (j + 1) as nat);
+        let sum_pf = partial_p_full_sum(c, p_coeffs, j);
+
+        // By IH, rest has length 2n
+        lemma_partial_p_full_sum_length_exact::<F>(c, p_coeffs, (j + 1) as nat);
+        assert(rest.len() == 2 * n);
+
+        // term has length n + 1 + j
+        assert(term.len() == (n + 1 + j) as nat);
+
+        // Since j < n - 1, we have n + 1 + j < 2n
+        // So term.len() < rest.len() = 2n
+        // Therefore poly_add(term, rest) has length max(term.len(), rest.len()) = 2n
+
+        // poly_add takes max, which is rest.len() = 2n
+        assert(sum_pf.len() == 2 * n);
+    }
+}
+
 /// Lemma: partial_p_full_sum at j=0 has length exactly 2*n.
 /// This is needed for decomposition proofs.
 proof fn lemma_partial_p_full_sum_length_0<F: Ring>(
@@ -1847,50 +1893,7 @@ proof fn lemma_partial_p_full_sum_length_0<F: Ring>(
             sum_pf.len() == 2 * n
         }),
 {
-    let n = p_coeffs.len();
-    let pf = p_full_seq(p_coeffs);
-
-    // Each term c[j] * shift(pf, j) has length (n+1) + j
-    // The longest term is at j=n-1 with length 2n
-    // poly_add takes max, so the final sum has length 2n
-
-    // Use induction structure from partial_p_full_sum definition
-    if n == 0 {
-        // partial_p_full_sum(c, p_coeffs, 0) = poly_zero(0) = empty seq
-        // Length should be 0 = 2 * 0
-        assert(partial_p_full_sum(c, p_coeffs, 0).len() == 0);
-    } else if n == 1 {
-        // partial_p_full_sum(c, p_coeffs, 0) = poly_add(term_0, rest_1)
-        // term_0 = c[0] * shift(pf, 0) has length n+1 = 2
-        // rest_1 = partial_p_full_sum(..., 1) = poly_zero(1) has length 1
-        // poly_add gives max(2, 1) = 2 = 2*n
-        let term_0 = poly_scalar_mul(c[0], poly_shift::<F>(pf, 0));
-        assert(term_0.len() == 2);
-        let rest_1 = partial_p_full_sum(c, p_coeffs, 1);
-        assert(rest_1.len() == 1);
-        // poly_add from poly_xgcd gives max length
-        assert(partial_p_full_sum(c, p_coeffs, 0).len() == 2);
-    } else {
-        // n >= 2: use lemma_partial_p_full_sum_length for j=0
-        // which gives sum_pf.len() >= n + 1 + 0 = n+1
-        lemma_partial_p_full_sum_length::<F>(c, p_coeffs, 0);
-
-        // We need to show the length is exactly 2n
-        // The recursive definition: partial_p_full_sum(..., 0) = poly_add(term_0, rest_1)
-        // where rest_1 = partial_p_full_sum(..., 1)
-        //
-        // By the lemma, rest_1 has length >= n+1+1 = n+2
-        // And the last term (at j=n-1) has length n+1+(n-1) = 2n
-        //
-        // The key is that poly_add preserves max length
-
-        // For a more direct proof, we need to know the exact length behavior
-        // of poly_add. Let's use the assumption for now since the math is clear.
-        assume(({
-            let sum_pf = partial_p_full_sum(c, p_coeffs, 0);
-            sum_pf.len() == 2 * n
-        }));
-    }
+    lemma_partial_p_full_sum_length_exact::<F>(c, p_coeffs, 0);
 }
 
 /// Lemma: partial_p_full_sum has sufficient length for reduction.
@@ -2216,115 +2219,68 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
     let len_ps = p_shift.len();
     let len_p = p.len();
 
-    // Define the sum function
     let f = |j: int| coeff(p_shift, j).mul(coeff(q, i - j));
-
-    // Split the sum: sum(0, len_ps) ≡ sum(0, k) + sum(k, len_ps)
-    lemma_sum_split::<F>(f, 0, k as int, len_ps as int);
-
-    // First part (j < k) is all zeros since coeff(p_shift, j) = 0 for j < k
-    lemma_sum_constant::<F>(F::zero(), 0, k as int);
-
-    // sum(0, k) ≡ 0
-    // sum(0, len_ps) ≡ 0 + sum(k, len_ps) ≡ sum(k, len_ps) by add_zero_left
-
-    additive_group_lemmas::lemma_add_zero_left::<F>(sum::<F>(f, k as int, len_ps as int));
-
-    // For j >= k, coeff(p_shift, j) = p[j-k]
-    // sum(k, len_ps) f(j) = sum(k, len_ps) p[j-k] * coeff(q, i-j)
-
     let g = |j: int| p[j - k as int].mul(coeff(q, i - j));
-
-    // Reindex: sum(k, len_ps) g(j) ≡ sum(0, len_p) g(l+k) = sum(0, len_p) p[l] * coeff(q, i-k-l)
-    lemma_sum_reindex::<F>(g, k as int, len_ps as int, k as int);
-
-    // The reindexed sum is: sum(0, len_p) p[l] * coeff(q, i-k-l)
-    // This is exactly conv_coeff(p, q, i-k) since coeff(p, l) = p[l] for l < len_p
-
     let h = |l: int| p[l].mul(coeff(q, (i - k as int) - l));
 
-    // Show that conv_coeff(p, q, i-k) ≡ sum(0, len_p) h(l)
-    assert forall|l: int| 0 <= l < len_p as int
-        implies coeff(p, l).mul(coeff(q, (i - k as int) - l)).eqv(h(l))
-    by {
-        assert(coeff(p, l) =~= p[l]);
-        F::axiom_eqv_reflexive(p[l]);
-        F::axiom_eqv_reflexive(coeff(q, (i - k as int) - l));
-        ring_lemmas::lemma_mul_congruence::<F>(coeff(p, l), p[l], coeff(q, (i - k as int) - l), coeff(q, (i - k as int) - l));
-    };
-
-    lemma_sum_congruence::<F>(
-        |l: int| coeff(p, l).mul(coeff(q, (i - k as int) - l)),
-        h,
-        0, len_p as int
-    );
-
-    // Chain equivalences:
-    // conv_coeff(p_shift, q, i) ≡ sum(0, len_ps) f(j)         [definition]
-    //                            ≡ sum(k, len_ps) f(j)         [0 + rest ≡ rest]
-    //                            ≡ sum(0, len_p) h(l)           [reindexing]
-    //                            ≡ conv_coeff(p, q, i-k)        [definition with congruence]
-
-    // The definition gives us:
-    // conv_coeff(p_shift, q, i) = sum(f, 0, len_ps)
-    assert(conv_coeff(p_shift, q, i) == sum::<F>(f, 0, len_ps as int));
-
-    // From lemma_sum_split: sum(f, 0, len_ps) ≡ sum(f, 0, k) + sum(f, k, len_ps)
-    // And from lemma_sum_constant: sum(|j| F::zero(), 0, k) ≡ 0
-    // We need to show that for j in [0, k): f(j) ≡ 0
-    // Because for j < k: coeff(p_shift, j) = 0 (p_shift has k leading zeros)
-    // p_shift = Seq::new(k + len_p, |i| if i < k { 0 } else { coeff(p, i - k) })
-    // For j < k: p_shift[j] = 0
     broadcast use group_seq_axioms;
 
-    // First show: p_shift[j] = 0 for j < k
-    assert forall|j: int| 0 <= j < k as int
-        implies p_shift[j] == F::zero()
-    by {
-        // From axiom_seq_new_index: Seq::new(len, f)[i] == f(i)
-        // p_shift = Seq::new(k + len_p, |i| if i < k { 0 } else { coeff(p, i - k) })
-        // For j < k: p_shift[j] = (if j < k { 0 } else { ... }) = F::zero()
-    };
-
-    // Now show f(j) = 0 for j < k
-    // TODO: The proof below is correct mathematically but Verus needs help connecting
-    // the axiom_seq_new_index to show p_shift[j] == F::zero() for j < k.
-    // For now, we use assume to document this proof debt.
-    assume(false);
+    // Step 1: Show f(j) ≡ 0 for j < k
     assert forall|j: int| 0 <= j < k as int
         implies (#[trigger] f(j)).eqv(F::zero())
     by {
-        // f(j) = coeff(p_shift, j) * coeff(q, i - j)
-        // For j < k: coeff(p_shift, j) = p_shift[j] = 0
-        // Use lemma_poly_shift_coeff to establish this
+        assert(0 <= j < (p.len() + k) as int);
         crate::poly_xgcd::lemma_poly_shift_coeff::<F>(p, k, j);
-        // Now: poly_shift(p, k)[j] ≡ 0, and coeff(p_shift, j) = p_shift[j]
         assert(p_shift[j].eqv(F::zero()));
         assert(coeff(p_shift, j) =~= p_shift[j]);
         F::axiom_eq_implies_eqv(coeff(p_shift, j), p_shift[j]);
         F::axiom_eqv_transitive(coeff(p_shift, j), p_shift[j], F::zero());
         assert(coeff(p_shift, j).eqv(F::zero()));
+        F::axiom_mul_congruence_left(coeff(p_shift, j), F::zero(), coeff(q, i - j));
+        assert(coeff(p_shift, j).mul(coeff(q, i - j)).eqv(F::zero().mul(coeff(q, i - j))));
+        F::axiom_mul_commutative(F::zero(), coeff(q, i - j));
+        assert(F::zero().mul(coeff(q, i - j)).eqv(coeff(q, i - j).mul(F::zero())));
         F::axiom_mul_zero_right(coeff(q, i - j));
+        assert(coeff(q, i - j).mul(F::zero()).eqv(F::zero()));
+        F::axiom_eqv_transitive(F::zero().mul(coeff(q, i - j)), coeff(q, i - j).mul(F::zero()), F::zero());
+        F::axiom_eqv_transitive(coeff(p_shift, j).mul(coeff(q, i - j)), F::zero().mul(coeff(q, i - j)), F::zero());
+        assert(f(j).eqv(F::zero()));
     };
 
-    // Now: sum(f, 0, k) ≡ sum(|j| F::zero(), 0, k) ≡ 0
-    lemma_sum_congruence::<F>(f, |j: int| F::zero(), 0, k as int);
-    lemma_sum_constant::<F>(F::zero(), 0, k as int);
+    // Step 2: sum(f, 0, k) ≡ 0
+    lemma_sum_all_zeros::<F>(f, 0, k as int);
 
+    // Step 3: sum(f, 0, len_ps) ≡ sum(f, k, len_ps) via split
+    lemma_sum_split::<F>(f, 0, k as int, len_ps as int);
+    assert(sum::<F>(f, 0, len_ps as int).eqv(sum::<F>(f, 0, k as int).add(sum::<F>(f, k as int, len_ps as int))));
+    assert(sum::<F>(f, 0, k as int).eqv(F::zero()));
+    additive_group_lemmas::lemma_add_zero_left::<F>(sum::<F>(f, k as int, len_ps as int));
+    assert(F::zero().add(sum::<F>(f, k as int, len_ps as int)).eqv(sum::<F>(f, k as int, len_ps as int)));
     let sum_f_0_k = sum::<F>(f, 0, k as int);
     let sum_f_k_hi = sum::<F>(f, k as int, len_ps as int);
     let sum_f_0_hi = sum::<F>(f, 0, len_ps as int);
+    let sum_f_0_k_add_hi = sum_f_0_k.add(sum_f_k_hi);
+    let zero_add_hi = F::zero().add(sum_f_k_hi);
+    // sum_f_0_k ≡ F::zero(), so by congruence:
+    // sum_f_0_k.add(sum_f_k_hi) ≡ F::zero().add(sum_f_k_hi) ≡ sum_f_k_hi
+    F::axiom_add_congruence_left(sum_f_0_k, F::zero(), sum_f_k_hi);
+    assert(sum_f_0_k_add_hi.eqv(zero_add_hi));
+    F::axiom_eqv_transitive(sum_f_0_hi, sum_f_0_k_add_hi, zero_add_hi);
+    F::axiom_eqv_transitive(sum_f_0_hi, zero_add_hi, sum_f_k_hi);
 
-    // From split: sum_f_0_hi ≡ sum_f_0_k + sum_f_k_hi
-    // From above: sum_f_0_k ≡ 0
-    assert(sum_f_0_k.eqv(F::zero()));
+    // Step 4: Show f(j) ≡ g(j) for j >= k
+    assert forall|j: int| k as int <= j < len_ps as int
+        implies (#[trigger] f(j)).eqv(g(j))
+    by {
+        crate::poly_xgcd::lemma_poly_shift_coeff::<F>(p, k, j);
+        assert(coeff(p_shift, j).eqv(p[j - k as int]));
+        F::axiom_mul_congruence_left(coeff(p_shift, j), p[j - k as int], coeff(q, i - j));
+    };
 
-    // So: sum_f_0_hi ≡ 0 + sum_f_k_hi ≡ sum_f_k_hi
-    additive_group_lemmas::lemma_add_zero_left::<F>(sum_f_k_hi);
-    F::axiom_eqv_transitive(sum_f_0_hi, sum_f_0_k.add(sum_f_k_hi), sum_f_k_hi);
+    // Step 5: sum(f, k, len_ps) ≡ sum(g, k, len_ps)
+    lemma_sum_congruence::<F>(f, g, k as int, len_ps as int);
 
-    // By reindexing: sum(g, k, len_ps) ≡ sum(|l| g(l+k), 0, len_p)
-    // where g(l+k) = p[l] * coeff(q, i-k-l) = h(l)
+    // Step 6: Show g(l + k) ≡ h(l) for l in [0, len_p)
     assert forall|l: int| 0 <= l < len_p as int
         implies (#[trigger] g(l + k as int)).eqv(h(l))
     by {
@@ -2333,41 +2289,39 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
         F::axiom_eqv_reflexive(g(l + k as int));
     };
 
-    // Chain the equivalences
-    F::axiom_eq_implies_eqv(conv_coeff(p_shift, q, i), sum_f_0_hi);
-    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum_f_0_hi, sum_f_k_hi);
-
-    // Now we need to show: sum(f, k, len_ps) ≡ sum(g, k, len_ps)
-    // f(j) = coeff(p_shift, j) * coeff(q, i-j)
-    // g(j) = p[j-k] * coeff(q, i-j)
-    // For j >= k: coeff(p_shift, j) = p[j-k], so f(j) ≡ g(j)
-    assert forall|j: int| k as int <= j < len_ps as int
-        implies (#[trigger] f(j)).eqv(g(j))
-    by {
-        // For j >= k: coeff(p_shift, j) = p[j - k]
-        assert(coeff(p_shift, j) == p[j - k as int]);
-        F::axiom_eqv_reflexive(f(j));
-    };
-
-    lemma_sum_congruence::<F>(f, g, k as int, len_ps as int);
-    assert(sum_f_k_hi.eqv(sum::<F>(g, k as int, len_ps as int)));
-
-    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum_f_k_hi, sum::<F>(g, k as int, len_ps as int));
-
-    // The reindexing gives: sum(g, k, len_ps) ≡ sum(|j| g(j + k), 0, len_p)
-    let g_shifted = |j: int| g(j + k as int);
+    // Step 7: sum(g, k, len_ps) ≡ sum(h, 0, len_p) via reindexing
     lemma_sum_reindex::<F>(g, k as int, len_ps as int, k as int);
+    let g_shifted = |j: int| g(j + k as int);
     assert(sum::<F>(g, k as int, len_ps as int).eqv(sum::<F>(g_shifted, 0, len_p as int)));
-
-    // g_shifted(j) = h(j)
     lemma_sum_congruence::<F>(g_shifted, h, 0, len_p as int);
+    assert(sum::<F>(g_shifted, 0, len_p as int).eqv(sum::<F>(h, 0, len_p as int)));
+    F::axiom_eqv_transitive(sum::<F>(g, k as int, len_ps as int), sum::<F>(g_shifted, 0, len_p as int), sum::<F>(h, 0, len_p as int));
 
-    // h gives conv_coeff(p, q, i-k)
+    // Step 8: Chain all equivalences
+    assert(conv_coeff(p_shift, q, i) == sum::<F>(f, 0, len_ps as int));
+    F::axiom_eq_implies_eqv(conv_coeff(p_shift, q, i), sum::<F>(f, 0, len_ps as int));
+
+    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum::<F>(f, 0, len_ps as int), sum::<F>(f, k as int, len_ps as int));
+    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum::<F>(f, k as int, len_ps as int), sum::<F>(g, k as int, len_ps as int));
     F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum::<F>(g, k as int, len_ps as int), sum::<F>(h, 0, len_p as int));
 
-    // And sum(h, 0, len_p) = conv_coeff(p, q, i-k)
-    assert(sum::<F>(h, 0, len_p as int) == conv_coeff(p, q, i - k as int));
-    F::axiom_eq_implies_eqv(sum::<F>(h, 0, len_p as int), conv_coeff(p, q, i - k as int));
+    // Show sum(h, 0, len_p) ≡ conv_coeff(p, q, i-k)
+    // h(l) = p[l] * coeff(q, i-k-l)
+    // conv_coeff(p, q, i-k) uses coeff(p, l) instead of p[l]
+    // But coeff(p, l) ≡ p[l] for l < len_p
+    assert forall|l: int| 0 <= l < len_p as int
+        implies (#[trigger] h(l)).eqv(coeff(p, l).mul(coeff(q, (i - k as int) - l)))
+    by {
+        assert(h(l) =~= p[l].mul(coeff(q, (i - k as int) - l)));
+        assert(coeff(p, l) =~= p[l]);
+        F::axiom_eq_implies_eqv(coeff(p, l), p[l]);
+        F::axiom_eqv_symmetric(coeff(p, l), p[l]);
+        assert(p[l].eqv(coeff(p, l)));
+        F::axiom_mul_congruence_left(p[l], coeff(p, l), coeff(q, (i - k as int) - l));
+    };
+
+    lemma_sum_congruence::<F>(h, |l: int| coeff(p, l).mul(coeff(q, (i - k as int) - l)), 0, len_p as int);
+    assert(sum::<F>(h, 0, len_p as int).eqv(conv_coeff(p, q, i - k as int)));
 
     F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum::<F>(h, 0, len_p as int), conv_coeff(p, q, i - k as int));
 }
