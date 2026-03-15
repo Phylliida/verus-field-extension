@@ -4,7 +4,7 @@ use crate::ring_lemmas::{
     lemma_sum_extend_left_zero, lemma_sum_extend_right_zero, lemma_sum_zero_fn,
 };
 use verus_algebra::lemmas::additive_group_lemmas;
-use verus_algebra::lemmas::ring_lemmas::{lemma_mul_congruence, lemma_mul_zero_left};
+use verus_algebra::lemmas::ring_lemmas::{self, lemma_mul_congruence, lemma_mul_zero_left};
 use verus_algebra::summation::{
     lemma_sum_add, lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_peel_last,
     lemma_sum_reindex, lemma_sum_split, sum,
@@ -1261,6 +1261,7 @@ proof fn lemma_div_step_lead_cancels<F: Field>(a: Seq<F>, b: Seq<F>)
         poly_deg(a) >= poly_deg(b),
         poly_deg(b) >= 0,
         !poly_is_zero(b),
+        !b[poly_deg(b)].eqv(F::zero()),
     ensures
         poly_div_step(a, b).2[poly_div_step(a, b).2.len() as int - 1].eqv(F::zero()),
 {
@@ -1271,45 +1272,94 @@ proof fn lemma_div_step_lead_cancels<F: Field>(a: Seq<F>, b: Seq<F>)
     let lc_a = a[da];
     let lc_b = b[db];
 
-    assert(lead_deg == (da - db) as nat);
-    assert(b.len() as int == db + 1);
-    assert(a.len() as int == da + 1);
-
-    assert(new_a.len() == a.len());
-    let last_idx = new_a.len() as int - 1;
-    assert(last_idx == da);
-
-    let term = poly_shift(poly_scale(b, lead_coeff), lead_deg);
-
-    lemma_poly_shift_coeff::<F>(poly_scale(b, lead_coeff), lead_deg, da as int);
-
-    assert(term[da].eqv(poly_scale(b, lead_coeff)[db]));
-
-    assert(da >= lead_deg as int);
-    assert(da - lead_deg as int == db);
-
-    F::axiom_mul_associative(lc_b, lc_a, lc_b.recip());
-    F::axiom_mul_commutative(lc_b, lc_a);
-    F::axiom_mul_associative(lc_a, lc_b, lc_b.recip());
-
-    F::axiom_mul_recip_right(lc_b);
-    F::axiom_mul_one_right(lc_a);
-
-    assert(term[da].eqv(lc_a));
-
     broadcast use group_seq_axioms;
 
-    assert(da < a.len() as int);
-    assert(da < term.len() as int);
-    assert(coeff(a, da) =~= a[da]);
-    assert(coeff(term, da) =~= term[da]);
+    F::axiom_eqv_reflexive(lc_a);
+    F::axiom_eqv_reflexive(lc_b);
+    assert(a[da].eqv(lc_a));
+    assert(b[db].eqv(lc_b));
 
-    assert(new_a =~= poly_sub(a, term));
+    lemma_mul_cancellation::<F>(lc_a, lc_b);
+    assert(lc_b.mul(lead_coeff).eqv(lc_a));
 
-    additive_group_lemmas::lemma_sub_congruence::<F>(a[da], a[da], term[da], lc_a);
+    let term = poly_shift(poly_scale(b, lead_coeff), lead_deg);
+    let scaled_b = poly_scale(b, lead_coeff);
+
+    lemma_poly_shift_coeff::<F>(scaled_b, lead_deg, da as int);
+    assert(term[da].eqv(scaled_b[db]));
+
+    assert(scaled_b[db] =~= b[db].mul(lead_coeff));
+    assert(scaled_b[db].eqv(b[db].mul(lead_coeff)));
+    assert(scaled_b[db].eqv(lc_b.mul(lead_coeff)));
+
+    F::axiom_eqv_transitive(term[da], scaled_b[db], lc_b.mul(lead_coeff));
+    F::axiom_eqv_transitive(term[da], lc_b.mul(lead_coeff), lc_a);
+    assert(term[da].eqv(lc_a));
+    assert(term[da].eqv(a[da]));
+
+    additive_group_lemmas::lemma_sub_congruence::<F>(a[da], a[da], term[da], a[da]);
     additive_group_lemmas::lemma_sub_self::<F>(a[da]);
 
     assert(a[da].sub(term[da]).eqv(F::zero()));
+}
+
+/// Helper: Show that b * (a * b^{-1}) = a when b is nonzero
+proof fn lemma_mul_cancellation<F: Field>(a: F, b: F)
+    requires
+        !b.eqv(F::zero()),
+    ensures
+        b.mul(a.mul(b.recip())).eqv(a),
+{
+    F::axiom_mul_recip_right(b);  // b * b.recip() ≡ 1
+    F::axiom_mul_one_right(a);    // a * 1 ≡ a
+
+    // Chain: b * (a * b^{-1})
+    // = (b * a) * b^{-1}        by associativity (t2 ≡ t1)
+    // = (a * b) * b^{-1}        by commutativity (t2 ≡ t3)
+    // = a * (b * b^{-1})        by associativity (t3 ≡ t4)
+    // = a * 1                   by inverse (t4 ≡ t5)
+    // = a                       by one (t5 ≡ a)
+
+    let t1 = b.mul(a.mul(b.recip()));  // b * (a * b^{-1})
+    let t2 = b.mul(a).mul(b.recip());  // (b * a) * b^{-1}
+    let t3 = a.mul(b).mul(b.recip());  // (a * b) * b^{-1}
+    let t4 = a.mul(b.mul(b.recip()));  // a * (b * b^{-1})
+    let t5 = a.mul(F::one());          // a * 1
+
+    // axiom_mul_associative(b, a, b.recip()) gives: (b*a)*b^{-1} ≡ b*(a*b^{-1})
+    // i.e., t2 ≡ t1
+    F::axiom_mul_associative(b, a, b.recip());
+
+    // axiom_mul_commutative(b, a) gives: b*a ≡ a*b
+    F::axiom_mul_commutative(b, a);
+
+    // We need: (b*a)*b^{-1} ≡ (a*b)*b^{-1} given b*a ≡ a*b
+    F::axiom_mul_congruence_left(b.mul(a), a.mul(b), b.recip());
+
+    // axiom_mul_associative(a, b, b.recip()) gives: (a*b)*b^{-1} ≡ a*(b*b^{-1})
+    F::axiom_mul_associative(a, b, b.recip());
+
+    // b*b^{-1} ≡ 1 from axiom_mul_recip_right
+    // So a*(b*b^{-1}) ≡ a*1 by congruence on right
+    ring_lemmas::lemma_mul_congruence_right::<F>(a, b.mul(b.recip()), F::one());
+
+    // a*1 ≡ a from axiom_mul_one_right
+
+    // Chain using transitivity with symmetry where needed
+    // t2 ≡ t1, need t1 ≡ t2 for transitivity
+    F::axiom_eqv_symmetric(t2, t1);  // t1 ≡ t2
+
+    // t2 ≡ t3 (from congruence)
+    F::axiom_eqv_transitive(t1, t2, t3);  // t1 ≡ t2 and t2 ≡ t3, so t1 ≡ t3
+
+    // t3 ≡ t4 (from associativity)
+    F::axiom_eqv_transitive(t1, t3, t4);  // t1 ≡ t3 and t3 ≡ t4, so t1 ≡ t4
+
+    // t4 ≡ t5 (from congruence)
+    F::axiom_eqv_transitive(t1, t4, t5);  // t1 ≡ t4 and t4 ≡ t5, so t1 ≡ t5
+
+    // t5 ≡ a (from one)
+    F::axiom_eqv_transitive(t1, t5, a);  // t1 ≡ t5 and t5 ≡ a, so t1 ≡ a
 }
 
 /// Lemma: Division step reduces degree
