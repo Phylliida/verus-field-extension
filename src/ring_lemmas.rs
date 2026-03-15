@@ -304,7 +304,7 @@ proof fn lemma_sum_extend_left_zero<F: Ring>(
 
 /// Extend sum range to the right with zero terms.
 /// If f(i) ≡ 0 for all hi <= i < new_hi, then sum(f, lo, new_hi) ≡ sum(f, lo, hi).
-proof fn lemma_sum_extend_right_zero<F: Ring>(
+pub proof fn lemma_sum_extend_right_zero<F: Ring>(
     f: spec_fn(int) -> F, lo: int, hi: int, new_hi: int,
 )
     requires

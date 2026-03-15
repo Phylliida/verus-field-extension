@@ -54,7 +54,7 @@ proof fn lemma_conv_coeff_out_of_bounds<F: Ring>(a: Seq<F>, b: Seq<F>, k: int)
 }
 
 /// Sum where all terms are zero is zero.
-proof fn lemma_sum_all_zeros<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int)
+pub proof fn lemma_sum_all_zeros<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int)
     requires
         forall|i: int| lo <= i < hi ==> (#[trigger] f(i)).eqv(F::zero()),
     ensures
@@ -125,15 +125,25 @@ pub proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi
     lemma_sum_all_zeros::<F>(f, lo, k);
     lemma_sum_all_zeros::<F>(f, k + 1, hi);
 
-    // We have:
-    // sum(lo, hi) ≡ sum(lo, k) + sum(k, hi)        [by sum_split]
-    // sum(k, hi) ≡ f(k) + sum(k+1, hi)             [by sum_peel_first]
-    // sum(lo, k) ≡ 0                               [by sum_all_zeros]
-    // sum(k+1, hi) ≡ 0                             [by sum_all_zeros]
+    let s = sum::<F>(f, lo, hi);
+    let s_lo_k = sum::<F>(f, lo, k);
+    let s_k_hi = sum::<F>(f, k, hi);
+    let s_k1_hi = sum::<F>(f, k + 1, hi);
 
-    // Chain: sum(k, hi) ≡ f(k) + 0 ≡ f(k)
-    //        sum(lo, hi) ≡ 0 + f(k) ≡ f(k)
-    assume(sum::<F>(f, lo, hi).eqv(f(k)));
+    // From sum_all_zeros: s_lo_k ≡ 0 and s_k1_hi ≡ 0
+    // From peel_first: s_k_hi ≡ f(k) + s_k1_hi
+    // From split: s ≡ s_lo_k + s_k_hi
+
+    // Chain: s_k_hi ≡ f(k) + s_k1_hi ≡ f(k) + 0 ≡ f(k)
+    F::axiom_add_zero_right(f(k));
+    F::axiom_eqv_transitive(s_k_hi, f(k).add(s_k1_hi), f(k));
+
+    // Chain: s ≡ s_lo_k + s_k_hi ≡ 0 + s_k_hi ≡ s_k_hi
+    additive_group_lemmas::lemma_add_zero_left::<F>(s_k_hi);
+    F::axiom_eqv_transitive(s, s_lo_k.add(s_k_hi), s_k_hi);
+
+    // Final: s ≡ s_k_hi ≡ f(k)
+    F::axiom_eqv_transitive(s, s_k_hi, f(k));
 }
 
 // ═══════════════════════════════════════════════════════════════════
