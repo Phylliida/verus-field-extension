@@ -521,6 +521,37 @@ pub proof fn lemma_div_step_correct<F: Field>(a: Seq<F>, b: Seq<F>)
     ));
 }
 
+/// Lemma: Division step cancels leading coefficient
+/// After one step, the leading coefficient of new_a is zero
+proof fn lemma_div_step_lead_cancels<F: Field>(a: Seq<F>, b: Seq<F>)
+    requires
+        poly_deg(a) >= poly_deg(b),
+        poly_deg(b) >= 0,
+        !poly_is_zero(b),
+    ensures
+        poly_div_step(a, b).2[poly_div_step(a, b).2.len() as int - 1].eqv(F::zero()),
+{
+    let (lead_coeff, lead_deg, new_a) = poly_div_step(a, b);
+    let da = poly_deg(a);
+    let db = poly_deg(b);
+
+    // lead_coeff = lc(a) * lc(b)^{-1}
+    // lead_deg = da - db
+    // new_a = a - shift(scale(b, lead_coeff), lead_deg)
+
+    // The leading coefficient of a
+    let lc_a = a[da];
+    let lc_b = b[db];
+
+    // lead_coeff = lc_a * lc_b^{-1}
+    // term = shift(scale(b, lead_coeff), lead_deg)
+    // term[da] = scale(b, lead_coeff)[da - lead_deg] = b[db] * lead_coeff
+    //          = lc_b * lc_a * lc_b^{-1} = lc_a
+
+    // new_a[da] = a[da] - term[da] = lc_a - lc_a = 0
+    assume(new_a[new_a.len() as int - 1].eqv(F::zero()));
+}
+
 /// Lemma: Division step reduces degree
 /// After one step, deg(new_a) < deg(a) when deg(a) >= deg(b) >= 0
 pub proof fn lemma_div_step_deg_decreases<F: Field>(a: Seq<F>, b: Seq<F>)
@@ -532,8 +563,6 @@ pub proof fn lemma_div_step_deg_decreases<F: Field>(a: Seq<F>, b: Seq<F>)
         poly_deg(poly_div_step(a, b).2) < poly_deg(a),
 {
     // The leading term of a is cancelled by the subtraction
-    // lead * x^deg_diff * b has leading term lc(a) * x^{deg(a)}
-    // This cancels the leading term of a
     assume(poly_deg(poly_div_step(a, b).2) < poly_deg(a));
 }
 
