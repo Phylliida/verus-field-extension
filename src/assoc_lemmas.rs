@@ -11,6 +11,7 @@ use verus_algebra::traits::additive_group::AdditiveGroup;
 use verus_algebra::traits::equivalence::Equivalence;
 use verus_algebra::traits::ring::Ring;
 use vstd::prelude::*;
+use vstd::seq::group_seq_axioms;
 
 verus! {
 
@@ -135,11 +136,31 @@ pub proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi
     // From split: s ≡ s_lo_k + s_k_hi
 
     // Chain: s_k_hi ≡ f(k) + s_k1_hi ≡ f(k) + 0 ≡ f(k)
-    F::axiom_add_zero_right(f(k));
+    // First: s_k1_hi ≡ 0 (from lemma_sum_all_zeros)
+    assert(s_k1_hi.eqv(F::zero()));
+    // f(k) ≡ f(k) (reflexivity)
+    F::axiom_eqv_reflexive(f(k));
+    // By congruence: f(k) + s_k1_hi ≡ f(k) + 0
+    additive_group_lemmas::lemma_add_congruence::<F>(
+        f(k), f(k),
+        s_k1_hi, F::zero()
+    );
+    F::axiom_add_zero_right(f(k));  // f(k) + 0 ≡ f(k)
+    F::axiom_eqv_transitive(f(k).add(s_k1_hi), f(k).add(F::zero()), f(k));
     F::axiom_eqv_transitive(s_k_hi, f(k).add(s_k1_hi), f(k));
 
     // Chain: s ≡ s_lo_k + s_k_hi ≡ 0 + s_k_hi ≡ s_k_hi
-    additive_group_lemmas::lemma_add_zero_left::<F>(s_k_hi);
+    // First: s_lo_k ≡ 0 (from lemma_sum_all_zeros)
+    assert(s_lo_k.eqv(F::zero()));
+    // s_k_hi ≡ s_k_hi (reflexivity)
+    F::axiom_eqv_reflexive(s_k_hi);
+    // By congruence: s_lo_k + s_k_hi ≡ 0 + s_k_hi
+    additive_group_lemmas::lemma_add_congruence::<F>(
+        s_lo_k, F::zero(),
+        s_k_hi, s_k_hi
+    );
+    additive_group_lemmas::lemma_add_zero_left::<F>(s_k_hi);  // 0 + s_k_hi ≡ s_k_hi
+    F::axiom_eqv_transitive(s_lo_k.add(s_k_hi), F::zero().add(s_k_hi), s_k_hi);
     F::axiom_eqv_transitive(s, s_lo_k.add(s_k_hi), s_k_hi);
 
     // Final: s ≡ s_k_hi ≡ f(k)
@@ -2244,7 +2265,107 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
     //                            ≡ sum(0, len_p) h(l)           [reindexing]
     //                            ≡ conv_coeff(p, q, i-k)        [definition with congruence]
 
-    assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)));
+    // The definition gives us:
+    // conv_coeff(p_shift, q, i) = sum(f, 0, len_ps)
+    assert(conv_coeff(p_shift, q, i) == sum::<F>(f, 0, len_ps as int));
+
+    // From lemma_sum_split: sum(f, 0, len_ps) ≡ sum(f, 0, k) + sum(f, k, len_ps)
+    // And from lemma_sum_constant: sum(|j| F::zero(), 0, k) ≡ 0
+    // We need to show that for j in [0, k): f(j) ≡ 0
+    // Because for j < k: coeff(p_shift, j) = 0 (p_shift has k leading zeros)
+    // p_shift = Seq::new(k + len_p, |i| if i < k { 0 } else { coeff(p, i - k) })
+    // For j < k: p_shift[j] = 0
+    broadcast use group_seq_axioms;
+
+    // First show: p_shift[j] = 0 for j < k
+    assert forall|j: int| 0 <= j < k as int
+        implies p_shift[j] == F::zero()
+    by {
+        // From axiom_seq_new_index: Seq::new(len, f)[i] == f(i)
+        // p_shift = Seq::new(k + len_p, |i| if i < k { 0 } else { coeff(p, i - k) })
+        // For j < k: p_shift[j] = (if j < k { 0 } else { ... }) = F::zero()
+    };
+
+    // Now show f(j) = 0 for j < k
+    assert forall|j: int| 0 <= j < k as int
+        implies (#[trigger] f(j)).eqv(F::zero())
+    by {
+        // f(j) = coeff(p_shift, j) * coeff(q, i - j)
+        // For j < k: coeff(p_shift, j) = p_shift[j] = 0
+        // Use lemma_poly_shift_coeff to establish this
+        crate::poly_xgcd::lemma_poly_shift_coeff::<F>(p, k, j);
+        // Now: poly_shift(p, k)[j] ≡ 0, and coeff(p_shift, j) = p_shift[j]
+        assert(p_shift[j].eqv(F::zero()));
+        assert(coeff(p_shift, j) =~= p_shift[j]);
+        F::axiom_eq_implies_eqv(coeff(p_shift, j), p_shift[j]);
+        F::axiom_eqv_transitive(coeff(p_shift, j), p_shift[j], F::zero());
+        assert(coeff(p_shift, j).eqv(F::zero()));
+        F::axiom_mul_zero_right(coeff(q, i - j));
+    };
+
+    // Now: sum(f, 0, k) ≡ sum(|j| F::zero(), 0, k) ≡ 0
+    lemma_sum_congruence::<F>(f, |j: int| F::zero(), 0, k as int);
+    lemma_sum_constant::<F>(F::zero(), 0, k as int);
+
+    let sum_f_0_k = sum::<F>(f, 0, k as int);
+    let sum_f_k_hi = sum::<F>(f, k as int, len_ps as int);
+    let sum_f_0_hi = sum::<F>(f, 0, len_ps as int);
+
+    // From split: sum_f_0_hi ≡ sum_f_0_k + sum_f_k_hi
+    // From above: sum_f_0_k ≡ 0
+    assert(sum_f_0_k.eqv(F::zero()));
+
+    // So: sum_f_0_hi ≡ 0 + sum_f_k_hi ≡ sum_f_k_hi
+    additive_group_lemmas::lemma_add_zero_left::<F>(sum_f_k_hi);
+    F::axiom_eqv_transitive(sum_f_0_hi, sum_f_0_k.add(sum_f_k_hi), sum_f_k_hi);
+
+    // By reindexing: sum(g, k, len_ps) ≡ sum(|l| g(l+k), 0, len_p)
+    // where g(l+k) = p[l] * coeff(q, i-k-l) = h(l)
+    assert forall|l: int| 0 <= l < len_p as int
+        implies (#[trigger] g(l + k as int)).eqv(h(l))
+    by {
+        assert(g(l + k as int) =~= p[l].mul(coeff(q, i - (l + k as int))));
+        assert(i - (l + k as int) == (i - k as int) - l);
+        F::axiom_eqv_reflexive(g(l + k as int));
+    };
+
+    // Chain the equivalences
+    F::axiom_eq_implies_eqv(conv_coeff(p_shift, q, i), sum_f_0_hi);
+    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum_f_0_hi, sum_f_k_hi);
+
+    // Now we need to show: sum(f, k, len_ps) ≡ sum(g, k, len_ps)
+    // f(j) = coeff(p_shift, j) * coeff(q, i-j)
+    // g(j) = p[j-k] * coeff(q, i-j)
+    // For j >= k: coeff(p_shift, j) = p[j-k], so f(j) ≡ g(j)
+    assert forall|j: int| k as int <= j < len_ps as int
+        implies (#[trigger] f(j)).eqv(g(j))
+    by {
+        // For j >= k: coeff(p_shift, j) = p[j - k]
+        assert(coeff(p_shift, j) == p[j - k as int]);
+        F::axiom_eqv_reflexive(f(j));
+    };
+
+    lemma_sum_congruence::<F>(f, g, k as int, len_ps as int);
+    assert(sum_f_k_hi.eqv(sum::<F>(g, k as int, len_ps as int)));
+
+    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum_f_k_hi, sum::<F>(g, k as int, len_ps as int));
+
+    // The reindexing gives: sum(g, k, len_ps) ≡ sum(|j| g(j + k), 0, len_p)
+    let g_shifted = |j: int| g(j + k as int);
+    lemma_sum_reindex::<F>(g, k as int, len_ps as int, k as int);
+    assert(sum::<F>(g, k as int, len_ps as int).eqv(sum::<F>(g_shifted, 0, len_p as int)));
+
+    // g_shifted(j) = h(j)
+    lemma_sum_congruence::<F>(g_shifted, h, 0, len_p as int);
+
+    // h gives conv_coeff(p, q, i-k)
+    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum::<F>(g, k as int, len_ps as int), sum::<F>(h, 0, len_p as int));
+
+    // And sum(h, 0, len_p) = conv_coeff(p, q, i-k)
+    assert(sum::<F>(h, 0, len_p as int) == conv_coeff(p, q, i - k as int));
+    F::axiom_eq_implies_eqv(sum::<F>(h, 0, len_p as int), conv_coeff(p, q, i - k as int));
+
+    F::axiom_eqv_transitive(conv_coeff(p_shift, q, i), sum::<F>(h, 0, len_p as int), conv_coeff(p, q, i - k as int));
 }
 
 /// Lemma: If poly_reduce(q) ≡ 0, then poly_reduce(shift(q, k)) ≡ 0 for positions < n.
