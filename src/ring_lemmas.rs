@@ -66,6 +66,7 @@ use verus_algebra::traits::equivalence::Equivalence;
 use verus_algebra::traits::field::Field;
 use verus_algebra::traits::ring::Ring;
 use vstd::prelude::*;
+use vstd::seq::group_seq_axioms;
 
 verus! {
 
@@ -870,6 +871,8 @@ pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p
                 poly_reduce(Seq::new(max_len, |i: int| coeff(h1, i)), p_coeffs)[k]),
     decreases max_len - h1.len()
 {
+    broadcast use group_seq_axioms;
+
     let h_padded = Seq::new(max_len, |i: int| coeff(h1, i));
 
     // Base case: if max_len == h1.len(), then h_padded == h1 (trivial)
@@ -920,11 +923,13 @@ pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p
         // h_padded[max_len - 1] =~= coeff(h1, max_len - 1) =~= F::zero()
         // When i >= h1.len(), coeff(h1, i) = F::zero()
         assert((max_len - 1) as int >= h1.len() as int);
-        // coeff(h1, max_len - 1) = F::zero() by definition of coeff
-        // h_padded[max_len - 1] = coeff(h1, max_len - 1) by Seq::new definition
-        // So h_padded[max_len - 1] =~= F::zero()
-        // This requires showing Seq::new applies the closure correctly
-        assume(h_padded[h_padded.len() as int - 1].eqv(F::zero()));
+
+        // By axiom_seq_new_index: h_padded[max_len - 1] == coeff(h1, max_len - 1)
+        // And by definition of coeff: when index >= h1.len(), returns F::zero()
+        assert(h_padded[(max_len - 1) as int] == coeff(h1, (max_len - 1) as int));
+        assert(coeff(h1, (max_len - 1) as int) == F::zero());
+        assert(h_padded[(max_len - 1) as int] == F::zero());
+        F::axiom_eq_implies_eqv(h_padded[(max_len - 1) as int], F::zero());
 
         // Use lemma_reduce_add_trailing_zero: poly_reduce(h_mid) ≡ poly_reduce(h_padded)
         lemma_reduce_add_trailing_zero::<F>(h_mid, h_padded, p_coeffs);

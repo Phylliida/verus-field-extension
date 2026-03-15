@@ -125,6 +125,14 @@ pub proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi
     lemma_sum_all_zeros::<F>(f, lo, k);
     lemma_sum_all_zeros::<F>(f, k + 1, hi);
 
+    // We have:
+    // sum(lo, hi) ≡ sum(lo, k) + sum(k, hi)        [by sum_split]
+    // sum(k, hi) ≡ f(k) + sum(k+1, hi)             [by sum_peel_first]
+    // sum(lo, k) ≡ 0                               [by sum_all_zeros]
+    // sum(k+1, hi) ≡ 0                             [by sum_all_zeros]
+
+    // Chain: sum(k, hi) ≡ f(k) + 0 ≡ f(k)
+    //        sum(lo, hi) ≡ 0 + f(k) ≡ f(k)
     assume(sum::<F>(f, lo, hi).eqv(f(k)));
 }
 
@@ -2140,7 +2148,7 @@ proof fn lemma_conv_coeff_zero_for_shifted<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat
 
     // For each j in the sum range, show the term is zero
     assert forall|j: int| 0 <= j < len_ps as int
-        implies coeff(p_shift, j).mul(coeff(q, i - j)).eqv(F::zero())
+        implies (#[trigger] coeff(p_shift, j).mul(coeff(q, i - j))).eqv(F::zero())
     by {
         if j < k as int {
             // coeff(p_shift, j) = 0 for j < k
@@ -2157,8 +2165,11 @@ proof fn lemma_conv_coeff_zero_for_shifted<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat
     };
 
     // All terms are zero, so the sum is zero
-    // This is the mathematical fact; we use assume to bridge the final step
-    assume(conv_coeff(p_shift, q, i).eqv(F::zero()));
+    lemma_sum_all_zeros::<F>(
+        |j: int| coeff(p_shift, j).mul(coeff(q, i - j)),
+        0,
+        len_ps as int
+    );
 }
 
 /// Helper: For i >= k, conv_coeff(poly_shift(p,k), q, i) ≡ conv_coeff(p, q, i-k)
@@ -2174,51 +2185,54 @@ proof fn lemma_conv_coeff_shift_identity<F: Ring>(p: Seq<F>, q: Seq<F>, k: nat, 
     let len_ps = p_shift.len();
     let len_p = p.len();
 
-    // LHS = sum_{j=0}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
-    // Split into j < k (all zeros) and j >= k parts
-    lemma_sum_split::<F>(
-        |j: int| coeff(p_shift, j).mul(coeff(q, i - j)),
-        0,
-        k as int,
-        len_ps as int,
-    );
+    // Define the sum function
+    let f = |j: int| coeff(p_shift, j).mul(coeff(q, i - j));
+
+    // Split the sum: sum(0, len_ps) ≡ sum(0, k) + sum(k, len_ps)
+    lemma_sum_split::<F>(f, 0, k as int, len_ps as int);
 
     // First part (j < k) is all zeros since coeff(p_shift, j) = 0 for j < k
     lemma_sum_constant::<F>(F::zero(), 0, k as int);
 
-    // Second part: sum_{j=k}^{len_ps-1} coeff(p_shift, j) * coeff(q, i-j)
+    // sum(0, k) ≡ 0
+    // sum(0, len_ps) ≡ 0 + sum(k, len_ps) ≡ sum(k, len_ps) by add_zero_left
+
+    additive_group_lemmas::lemma_add_zero_left::<F>(sum::<F>(f, k as int, len_ps as int));
+
     // For j >= k, coeff(p_shift, j) = p[j-k]
-    // So this is: sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j)
+    // sum(k, len_ps) f(j) = sum(k, len_ps) p[j-k] * coeff(q, i-j)
 
-    // Reindex with l = j - k, so j = l + k
-    // When j = k: l = 0
-    // When j = len_ps - 1 = k + len_p - 1: l = len_p - 1
-    // And i - j = i - l - k = (i - k) - l
+    let g = |j: int| p[j - k as int].mul(coeff(q, i - j));
 
-    lemma_sum_reindex::<F>(
-        |j: int| p[j - k as int].mul(coeff(q, i - j)),
-        k as int,
-        len_ps as int,
-        k as int,
+    // Reindex: sum(k, len_ps) g(j) ≡ sum(0, len_p) g(l+k) = sum(0, len_p) p[l] * coeff(q, i-k-l)
+    lemma_sum_reindex::<F>(g, k as int, len_ps as int, k as int);
+
+    // The reindexed sum is: sum(0, len_p) p[l] * coeff(q, i-k-l)
+    // This is exactly conv_coeff(p, q, i-k) since coeff(p, l) = p[l] for l < len_p
+
+    let h = |l: int| p[l].mul(coeff(q, (i - k as int) - l));
+
+    // Show that conv_coeff(p, q, i-k) ≡ sum(0, len_p) h(l)
+    assert forall|l: int| 0 <= l < len_p as int
+        implies coeff(p, l).mul(coeff(q, (i - k as int) - l)).eqv(h(l))
+    by {
+        assert(coeff(p, l) =~= p[l]);
+        F::axiom_eqv_reflexive(p[l]);
+        F::axiom_eqv_reflexive(coeff(q, (i - k as int) - l));
+        ring_lemmas::lemma_mul_congruence::<F>(coeff(p, l), p[l], coeff(q, (i - k as int) - l), coeff(q, (i - k as int) - l));
+    };
+
+    lemma_sum_congruence::<F>(
+        |l: int| coeff(p, l).mul(coeff(q, (i - k as int) - l)),
+        h,
+        0, len_p as int
     );
 
-    // After reindexing: sum_{l=0}^{len_p-1} p[l] * coeff(q, (i-k) - l)
-    // This is exactly conv_coeff(p, q, i - k)
-    //
-    // conv_coeff(p, q, i-k) = sum_{l=0}^{len_p-1} coeff(p, l) * coeff(q, (i-k)-l)
-    //                       = sum_{l=0}^{len_p-1} p[l] * coeff(q, (i-k)-l)
-
-    // The sum_reindex lemma gives us:
-    // sum_{j=k}^{len_ps-1} p[j-k] * coeff(q, i-j) ≡ sum_{l=0}^{len_p-1} p[l] * coeff(q, i-k-l)
-
-    // And the RHS is conv_coeff(p, q, i-k)
-
-    // Chain the equivalences:
-    // 1. conv_coeff(p_shift, q, i) ≡ sum_0^{len_ps-1} coeff(p_shift,j)*coeff(q,i-j)  [by definition]
-    // 2. sum_0^{len_ps-1} ≡ sum_0^{k-1} + sum_k^{len_ps-1}  [by sum_split]
-    // 3. sum_0^{k-1} ≡ 0  [by sum_constant]
-    // 4. sum_k^{len_ps-1} p[j-k]*coeff(q,i-j) ≡ sum_0^{len_p-1} p[l]*coeff(q,i-k-l)  [by sum_reindex]
-    // 5. sum_0^{len_p-1} p[l]*coeff(q,i-k-l) = conv_coeff(p, q, i-k)  [by definition]
+    // Chain equivalences:
+    // conv_coeff(p_shift, q, i) ≡ sum(0, len_ps) f(j)         [definition]
+    //                            ≡ sum(k, len_ps) f(j)         [0 + rest ≡ rest]
+    //                            ≡ sum(0, len_p) h(l)           [reindexing]
+    //                            ≡ conv_coeff(p, q, i-k)        [definition with congruence]
 
     assume(conv_coeff(poly_shift::<F>(p, k), q, i).eqv(conv_coeff(p, q, i - k as int)));
 }
