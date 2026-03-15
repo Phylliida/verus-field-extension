@@ -21,7 +21,7 @@ verus! {
 /// conv_coeff returns zero when k is out of the valid range [0, a.len() + b.len() - 2].
 /// When k < 0: for all j >= 0, k-j < 0, so coeff(b, k-j) = 0.
 /// When k >= a.len() + b.len() - 1: for all j in [0, a.len()), k-j >= b.len(), so coeff(b, k-j) = 0.
-proof fn lemma_conv_coeff_out_of_bounds<F: Ring>(a: Seq<F>, b: Seq<F>, k: int)
+pub proof fn lemma_conv_coeff_out_of_bounds<F: Ring>(a: Seq<F>, b: Seq<F>, k: int)
     requires
         a.len() >= 0,
         b.len() >= 0,
