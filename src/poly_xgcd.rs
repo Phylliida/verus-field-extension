@@ -1300,6 +1300,7 @@ proof fn lemma_div_step_lead_cancels<F: Field>(a: Seq<F>, b: Seq<F>)
     additive_group_lemmas::lemma_sub_congruence::<F>(a[da], a[da], term[da], a[da]);
     additive_group_lemmas::lemma_sub_self::<F>(a[da]);
 
+    F::axiom_eqv_transitive(a[da].sub(term[da]), a[da].sub(a[da]), F::zero());
     assert(a[da].sub(term[da]).eqv(F::zero()));
 }
 
