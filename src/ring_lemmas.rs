@@ -918,13 +918,37 @@ pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p
 
         // h_padded[h_padded.len() - 1] ≡ 0
         // h_padded[max_len - 1] =~= coeff(h1, max_len - 1) =~= F::zero()
+        // When i >= h1.len(), coeff(h1, i) = F::zero()
         assert((max_len - 1) as int >= h1.len() as int);
+        // coeff(h1, max_len - 1) = F::zero() by definition of coeff
+        // h_padded[max_len - 1] = coeff(h1, max_len - 1) by Seq::new definition
+        // So h_padded[max_len - 1] =~= F::zero()
+        // This requires showing Seq::new applies the closure correctly
         assume(h_padded[h_padded.len() as int - 1].eqv(F::zero()));
 
         // Use lemma_reduce_add_trailing_zero: poly_reduce(h_mid) ≡ poly_reduce(h_padded)
         lemma_reduce_add_trailing_zero::<F>(h_mid, h_padded, p_coeffs);
 
         // Chain: poly_reduce(h1) ≡ poly_reduce(h_mid) ≡ poly_reduce(h_padded)
+        // From IH: forall|k| poly_reduce(h1)[k].eqv(poly_reduce(h_mid)[k])
+        // From lemma: forall|k| poly_reduce(h_padded)[k].eqv(poly_reduce(h_mid)[k])
+        // By symmetry: poly_reduce(h_mid)[k].eqv(poly_reduce(h_padded)[k])
+        // By transitivity: poly_reduce(h1)[k].eqv(poly_reduce(h_padded)[k])
+        assert forall|k: int| 0 <= k < poly_reduce(h1, p_coeffs).len() as int
+            implies poly_reduce(h1, p_coeffs)[k].eqv(poly_reduce(h_padded, p_coeffs)[k])
+        by {
+            // From lemma_reduce_add_trailing_zero: h_padded reduction ≡ h_mid reduction
+            assert(poly_reduce(h_padded, p_coeffs)[k].eqv(poly_reduce(h_mid, p_coeffs)[k]));
+            // By symmetry
+            F::axiom_eqv_symmetric(poly_reduce(h_padded, p_coeffs)[k], poly_reduce(h_mid, p_coeffs)[k]);
+            // From IH: h1 reduction ≡ h_mid reduction
+            // Then by transitivity: h1 reduction ≡ h_padded reduction
+            F::axiom_eqv_transitive(
+                poly_reduce(h1, p_coeffs)[k],
+                poly_reduce(h_mid, p_coeffs)[k],
+                poly_reduce(h_padded, p_coeffs)[k],
+            );
+        };
     }
 }
 
