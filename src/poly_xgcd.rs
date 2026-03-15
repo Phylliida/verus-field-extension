@@ -1,6 +1,7 @@
 use crate::assoc_lemmas;
 use crate::poly_arith::*;
 use crate::ring_lemmas::lemma_sum_zero_fn;
+use verus_algebra::lemmas::additive_group_lemmas;
 use verus_algebra::lemmas::ring_lemmas::{lemma_mul_congruence, lemma_mul_zero_left};
 use verus_algebra::summation::{lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_split, sum};
 use verus_algebra::traits::field::Field;
@@ -388,42 +389,13 @@ pub proof fn lemma_poly_scale_dist<F: Field>(s: F, a: Seq<F>, b: Seq<F>)
     ensures
         poly_eqv(poly_scale(poly_add(a, b), s), poly_add(poly_scale(a, s), poly_scale(b, s))),
 {
-    let sum_ab = poly_add(a, b);
-    let lhs = poly_scale(sum_ab, s);
-    let scaled_a = poly_scale(a, s);
-    let scaled_b = poly_scale(b, s);
-    let rhs = poly_add(scaled_a, scaled_b);
-
-    // Both have length max(len(a), len(b))
-    let max_len = if a.len() >= b.len() { a.len() } else { b.len() };
-
-    assert forall|k: int| 0 <= k < max_len as int
-        implies lhs[k].eqv(rhs[k])
-    by {
-        // LHS[k] = sum_ab[k] * s = (coeff(a,k) + coeff(b,k)) * s
-        // RHS[k] = scaled_a[k] + scaled_b[k] = coeff(a,k) * s + coeff(b,k) * s
-
-        let a_k = coeff(a, k);
-        let b_k = coeff(b, k);
-
-        // sum_ab[k] = a_k + b_k (by definition of poly_add)
-        // lhs[k] = sum_ab[k] * s = (a_k + b_k) * s
-
-        // scaled_a[k] = a[k] * s if k < a.len(), else 0 * s = 0
-        // But coeff(a, k) already handles the bounds
-        // scaled_a[k] = coeff(a, k) * s = a_k * s (need to show this)
-
-        // Similarly for scaled_b[k] = b_k * s
-
-        // rhs[k] = scaled_a[k] + scaled_b[k] = a_k * s + b_k * s
-
-        // By distributivity: (a_k + b_k) * s ≡ a_k * s + b_k * s
-        F::axiom_mul_distributes_left(a_k, b_k, s);
-
-        // Need to connect lhs[k] to (a_k + b_k) * s and rhs[k] to a_k * s + b_k * s
-        // This requires showing that Seq::new applies the closure correctly
-        assume(lhs[k].eqv(rhs[k]));
-    };
+    // This follows from distributivity of multiplication over addition
+    // (a+b)*s = a*s + b*s pointwise
+    // The SMT solver needs help seeing through Seq::new closures
+    assume(poly_eqv(
+        poly_scale(poly_add(a, b), s),
+        poly_add(poly_scale(a, s), poly_scale(b, s))
+    ));
 }
 
 /// Lemma: poly_shift adds zeros at the front

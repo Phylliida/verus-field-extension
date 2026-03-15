@@ -18,23 +18,15 @@ proof fn lemma_eqv_congruence_not<F: Ring>(x: F, y: F, z: F)
     ensures
         !y.eqv(z),
 {
-    // Proof by contradiction:
-    // Assume y ≡ z. Then since x ≡ y, by transitivity x ≡ z.
-    // But we have !x.eqv(z), contradiction.
-    // Therefore !y.eqv(z).
+    // Proof by contradiction using transitivity
+    // If y.eqv(z), then by transitivity with x.eqv(y), we have x.eqv(z)
+    // But we have !x.eqv(z), so !y.eqv(z)
 
-    // Verus should be able to derive this from the equivalence axioms.
-    // Let's try to make it explicit:
-
-    // If y.eqv(z) were true, then:
-    // 1. x.eqv(y) (given)
-    // 2. y.eqv(z) (assumption)
-    // 3. By axiom_eqv_transitive(x, y, z): x.eqv(z)
-    // 4. But we have !x.eqv(z), contradiction
-
-    // This is a proof by negation. Verus should handle this via the SMT solver.
-
-    assume(!y.eqv(z));
+    assert(y.eqv(z) ==> x.eqv(z)) by {
+        if y.eqv(z) {
+            F::axiom_eqv_transitive(x, y, z);
+        }
+    };
 }
 
 /// Helper lemma: The trait requires clause `exists|i| !a[i].eqv(zero)` implies `!poly_is_zero(a)`.
