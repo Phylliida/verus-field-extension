@@ -105,8 +105,26 @@ pub proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi
     ensures
         sum::<F>(f, lo, hi).eqv(f(k)),
 {
-    // Mathematical proof: sum splits as sum(lo, k) + f(k) + sum(k+1, hi)
-    // Both outer sums are zero, leaving f(k).
+    lemma_sum_split::<F>(f, lo, k, hi);
+    lemma_sum_peel_first::<F>(f, k, hi);
+
+    assert forall|j: int| lo <= j < k
+        implies (#[trigger] f(j)).eqv(F::zero())
+    by {
+        assert(lo <= j < hi);
+        assert(j != k);
+    }
+
+    assert forall|j: int| k + 1 <= j < hi
+        implies (#[trigger] f(j)).eqv(F::zero())
+    by {
+        assert(lo <= j < hi);
+        assert(j != k);
+    }
+
+    lemma_sum_all_zeros::<F>(f, lo, k);
+    lemma_sum_all_zeros::<F>(f, k + 1, hi);
+
     assume(sum::<F>(f, lo, hi).eqv(f(k)));
 }
 

@@ -1,9 +1,12 @@
 use crate::assoc_lemmas;
 use crate::poly_arith::*;
-use verus_algebra::summation::sum;
+use crate::ring_lemmas::lemma_sum_zero_fn;
+use verus_algebra::lemmas::ring_lemmas::{lemma_mul_congruence, lemma_mul_zero_left};
+use verus_algebra::summation::{lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_split, sum};
 use verus_algebra::traits::field::Field;
 use verus_algebra::traits::ring::Ring;
 use vstd::prelude::*;
+use vstd::seq::group_seq_axioms;
 
 verus! {
 
@@ -476,7 +479,15 @@ pub proof fn lemma_poly_one_coeff<F: Ring>(n: nat, i: int)
         i == 0 ==> poly_one::<F>(n)[i].eqv(F::one()),
         i > 0 ==> poly_one::<F>(n)[i].eqv(F::zero()),
 {
-    assume(if i == 0 { poly_one::<F>(n)[i].eqv(F::one()) } else { poly_one::<F>(n)[i].eqv(F::zero()) });
+    broadcast use group_seq_axioms;
+    let one_poly = poly_one::<F>(n);
+    if i == 0 {
+        assert(one_poly[i] == F::one());
+        F::axiom_eq_implies_eqv(one_poly[i], F::one());
+    } else {
+        assert(one_poly[i] == F::zero());
+        F::axiom_eq_implies_eqv(one_poly[i], F::zero());
+    }
 }
 
 /// Lemma: poly_mul_raw with poly_one(1): a * [1] ≡ a
@@ -486,12 +497,71 @@ pub proof fn lemma_poly_mul_raw_one_right<F: Ring>(a: Seq<F>)
     ensures
         poly_eqv(poly_mul_raw(a, poly_one::<F>(1)), a),
 {
+    broadcast use group_seq_axioms;
     let one = poly_one::<F>(1);
     let result = poly_mul_raw(a, one);
+    let n = a.len();
 
-    // poly_one(1) = [1], so convolving with it is identity
-    // For each k: conv_coeff(a, [1], k) = a[k] * 1 = a[k]
-    assume(poly_eqv(result, a));
+    lemma_poly_one_coeff::<F>(1, 0);
+
+    assert(result.len() == n);
+    assert(one.len() == 1);
+    assert(one[0] == F::one());
+    assert(coeff(one, 0) == F::one());
+    F::axiom_eq_implies_eqv(coeff(one, 0), F::one());
+
+    assert forall|k: int| 0 <= k < n as int
+        implies result[k].eqv(a[k])
+    by {
+        assert(result[k] =~= conv_coeff(a, one, k));
+
+        assert forall|j: int| 0 <= j < n as int && j != k
+            implies (#[trigger] coeff(a, j).mul(coeff(one, k - j))).eqv(F::zero())
+        by {
+            if 0 <= k - j < 1 {
+                assert(k - j == 0);
+                assert(j == k);
+            }
+            assert(coeff(one, k - j) =~= F::zero());
+            F::axiom_mul_zero_right(coeff(a, j));
+        }
+
+        assert(coeff(a, k) == a[k]) by {
+            assert(0 <= k < n as int);
+        }
+        F::axiom_eq_implies_eqv(coeff(a, k), a[k]);
+
+        lemma_mul_congruence::<F>(coeff(a, k), a[k], coeff(one, 0), F::one());
+
+        assert(coeff(a, k).mul(coeff(one, 0)).eqv(a[k].mul(F::one())));
+
+        F::axiom_mul_one_right(a[k]);
+
+        assert(a[k].mul(F::one()).eqv(a[k]));
+
+        assoc_lemmas::lemma_sum_single_nonzero::<F>(
+            |j: int| coeff(a, j).mul(coeff(one, k - j)),
+            0, n as int, k
+        );
+
+        F::axiom_eqv_transitive(coeff(a, k).mul(coeff(one, 0)), a[k].mul(F::one()), a[k]);
+
+        assert(sum::<F>(|j: int| coeff(a, j).mul(coeff(one, k - j)), 0, n as int).eqv(
+            coeff(a, k).mul(coeff(one, 0))
+        ));
+
+        F::axiom_eqv_transitive(sum::<F>(|j: int| coeff(a, j).mul(coeff(one, k - j)), 0, n as int), coeff(a, k).mul(coeff(one, 0)), a[k]);
+
+        assert(conv_coeff(a, one, k) =~= sum::<F>(|j: int| coeff(a, j).mul(coeff(one, k - j)), 0, n as int));
+        F::axiom_eq_implies_eqv(
+            conv_coeff(a, one, k),
+            sum::<F>(|j: int| coeff(a, j).mul(coeff(one, k - j)), 0, n as int)
+        );
+
+        F::axiom_eqv_transitive(conv_coeff(a, one, k), sum::<F>(|j: int| coeff(a, j).mul(coeff(one, k - j)), 0, n as int), a[k]);
+
+        F::axiom_eqv_transitive(result[k], conv_coeff(a, one, k), a[k]);
+    }
 }
 
 /// Lemma: poly_mul_raw distributes over poly_add (right): (a + b) * c ≡ a*c + b*c
