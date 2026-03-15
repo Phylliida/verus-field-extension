@@ -418,6 +418,7 @@ pub proof fn lemma_poly_shift_coeff<F: Ring>(p: Seq<F>, n: nat, k: int)
         k < n as int ==> poly_shift(p, n)[k].eqv(F::zero()),
         k >= n as int ==> poly_shift(p, n)[k].eqv(p[k - n as int]),
 {
+    broadcast use group_seq_axioms;
     if k < n as int {
         assert(poly_shift(p, n)[k] =~= F::zero());
         F::axiom_eqv_reflexive(F::zero());
