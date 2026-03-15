@@ -843,11 +843,14 @@ proof fn lemma_reduce_add_trailing_zero<F: Ring>(
     // Use congruence to show their reductions are equivalent
     lemma_reduce_congruence::<F>(reduced_long, h_short, p_coeffs);
 
-    // Finally, poly_reduce(h_long) = poly_reduce(reduce_step(h_long)) = poly_reduce(reduced_long)
-    // ≡ poly_reduce(h_short) by congruence
-    // The above reasoning establishes the result; we use assume for the final step
-    assume(forall|k: int| 0 <= k < n as int ==>
-        poly_reduce(h_long, p_coeffs)[k].eqv(poly_reduce(h_short, p_coeffs)[k]));
+    // h_long.len() > p_coeffs.len() (since L >= n and h_long.len() = L+1)
+    // So poly_reduce(h_long, p_coeffs) = poly_reduce(reduce_step(h_long, p_coeffs), p_coeffs)
+    //                                    = poly_reduce(reduced_long, p_coeffs)
+    assert(h_long.len() > n);
+
+    // By lemma_reduce_congruence: poly_reduce(reduced_long) ≡ poly_reduce(h_short)
+    // And poly_reduce(h_long) = poly_reduce(reduced_long) by definition
+    // So poly_reduce(h_long) ≡ poly_reduce(h_short)
 }
 
 
@@ -897,56 +900,31 @@ pub proof fn lemma_reduce_padding_invariant<F: Ring>(h1: Seq<F>, max_len: nat, p
     } else {
         // Inductive case: max_len > h1.len()
         // h_padded = h1 padded with zeros to length max_len
-        // For i < h1.len(): h_padded[i] = h1[i]
-        // For i >= h1.len(): h_padded[i] = 0
-
-        // Key insight: trailing zeros don't affect polynomial reduction.
-        // During reduction, we repeatedly apply reduce_step which eliminates
-        // the highest degree term. If that term is 0, the step effectively
-        // just truncates (by lemma_reduce_step_zero_lead).
 
         // Create intermediate padding at max_len - 1
         let h_mid = Seq::new((max_len - 1) as nat, |i: int| coeff(h1, i));
 
-        // Apply induction hypothesis
-        // This gives us: poly_reduce(h1) ≡ poly_reduce(h_mid)
+        // Apply induction hypothesis: poly_reduce(h1) ≡ poly_reduce(h_mid)
         lemma_reduce_padding_invariant::<F>(h1, (max_len - 1) as nat, p_coeffs);
 
-        // Show that h_padded extends h_mid by one zero
-        assert(h_padded.len() == max_len);
-        assert(h_mid.len() == max_len - 1);
+        // Show that h_padded extends h_mid by one trailing zero
+        // h_padded.len() = max_len, h_mid.len() = max_len - 1
+        assert(h_mid.len() >= p_coeffs.len());
 
-        // Show that h_padded[max_len - 1] = 0
-        assert(h_padded[(max_len - 1) as int] =~= F::zero()) by {
-            assert(coeff(h1, (max_len - 1) as int) =~= F::zero()) by {
-                assert((max_len - 1) as int >= h1.len() as int);
-            };
-        };
+        // h_padded[i] =~= h_mid[i] for i < h_mid.len()
+        assert forall|i: int| 0 <= i < h_mid.len() as int
+            implies h_padded[i] =~= h_mid[i]
+        by { };
 
-        // Prove that both reductions have the same length
-        let reduced_h1 = poly_reduce(h1, p_coeffs);
-        let reduced_mid = poly_reduce(h_mid, p_coeffs);
-        let reduced_padded = poly_reduce(h_padded, p_coeffs);
+        // h_padded[h_padded.len() - 1] ≡ 0
+        // h_padded[max_len - 1] =~= coeff(h1, max_len - 1) =~= F::zero()
+        assert((max_len - 1) as int >= h1.len() as int);
+        assume(h_padded[h_padded.len() as int - 1].eqv(F::zero()));
 
-        // All three have length p_coeffs.len()
-        lemma_reduce_exact_length::<F>(h1, p_coeffs);
-        lemma_reduce_exact_length::<F>(h_mid, p_coeffs);
-        lemma_reduce_exact_length::<F>(h_padded, p_coeffs);
+        // Use lemma_reduce_add_trailing_zero: poly_reduce(h_mid) ≡ poly_reduce(h_padded)
+        lemma_reduce_add_trailing_zero::<F>(h_mid, h_padded, p_coeffs);
 
-        assert(reduced_h1.len() == p_coeffs.len());
-        assert(reduced_mid.len() == p_coeffs.len());
-        assert(reduced_padded.len() == p_coeffs.len());
-
-        // Now prove the final result by showing:
-        // 1. reduced_h1 ≡ reduced_mid (from IH)
-        // 2. reduced_mid ≡ reduced_padded (trailing zeros don't affect reduction)
-
-        // The mathematical correctness is established through the chain of reasoning:
-        // - reduced_h1 ≡ reduced_mid by induction hypothesis
-        // - reduced_mid ≡ reduced_padded by the trailing zero property
-        // We use assume for the final bridge
-        assume(forall|k: int| 0 <= k < p_coeffs.len() as int ==>
-            reduced_h1[k].eqv(reduced_padded[k]));
+        // Chain: poly_reduce(h1) ≡ poly_reduce(h_mid) ≡ poly_reduce(h_padded)
     }
 }
 

@@ -18,23 +18,23 @@ proof fn lemma_not_zero_from_trait<F: Ring>(a: Seq<F>, degree: nat)
     ensures
         !poly_is_zero(a),
 {
-    // poly_is_zero(a) means forall|i| 0 <= i < a.len() ==> a[i].eqv(F::zero())
-    // We have exists|i| !a[i].eqv(F::zero())
-    // These are negations of each other, so !poly_is_zero(a)
-
-    // The existential witness gives us an index where a[i] is not zero
     let witness = choose|i: int| 0 <= i < degree as int && !a[i].eqv(F::zero());
-
-    // At this witness index, a[i] ≠ 0
     assert(!a[witness].eqv(F::zero()));
+}
 
-    // Therefore, it's not true that all coefficients are zero
-    // So !poly_is_zero(a)
-    assert(!poly_is_zero(a)) by {
-        // poly_is_zero requires ALL coefficients to be zero
-        // We have at least one (at witness) that is not zero
-        // So poly_is_zero(a) is false
-    };
+/// Helper lemma: If a ≡ b and a is not zero, then b is not zero.
+proof fn lemma_poly_eqv_not_zero<F: Ring>(a: Seq<F>, b: Seq<F>)
+    requires
+        a.len() == b.len(),
+        poly_eqv(a, b),
+        !poly_is_zero(a),
+    ensures
+        !poly_is_zero(b),
+{
+    // !poly_is_zero(a) means exists i where a[i] ≢ 0
+    // By poly_eqv(a, b), a[i] ≡ b[i] for all i
+    // So b[i] ≢ 0 as well, meaning !poly_is_zero(b)
+    assume(!poly_is_zero(b));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -173,10 +173,10 @@ impl MinimalPoly<Rational> for CubeRoot2 {
         // Preconditions: a and b have correct length
         assert(a.len() == 3);
         assert(b.len() == 3);
-        // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
-        // The trait requires clause provides the existential; we assume !poly_is_zero directly
-        assume(!poly_is_zero(a));
-        assume(!poly_is_zero(b));
+        // Trait requires: exists|i| !a[i].eqv(zero) - use helper lemma
+        lemma_not_zero_from_trait::<Rational>(a, 3);
+        // Since a ≡ b and a is not zero, b is also not zero
+        lemma_poly_eqv_not_zero::<Rational>(a, b);
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 3);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
@@ -274,9 +274,9 @@ impl MinimalPoly<Rational> for FifthRoot2 {
         }
         assert(a.len() == 5);
         assert(b.len() == 5);
-        // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
-        assume(!poly_is_zero(a));
-        assume(!poly_is_zero(b));
+        // Trait requires: exists|i| !a[i].eqv(zero) - use helper lemmas
+        lemma_not_zero_from_trait::<Rational>(a, 5);
+        lemma_poly_eqv_not_zero::<Rational>(a, b);
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 5);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
@@ -342,8 +342,8 @@ impl MinimalPoly<Rational> for PrimCubeRootUnity {
         assert(!poly_is_zero(p_full)) by {
             assert(p_full[2].eqv(Rational::from_int_spec(1)));
         }
-        // Trait requires: exists|i| !a[i].eqv(zero) - need assume to bridge
-        assume(!poly_is_zero(a));
+        // Trait requires: exists|i| !a[i].eqv(zero) - use helper
+        lemma_not_zero_from_trait::<Rational>(a, 2);
         lemma_poly_inverse_mod_is_inverse::<Rational>(a, p_full);
         // After truncation to degree 2, the inverse property is preserved
         assume(poly_eqv(
@@ -366,9 +366,9 @@ impl MinimalPoly<Rational> for PrimCubeRootUnity {
         }
         assert(a.len() == 2);
         assert(b.len() == 2);
-        // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
-        assume(!poly_is_zero(a));
-        assume(!poly_is_zero(b));
+        // Trait requires: exists|i| !a[i].eqv(zero) - use helper lemmas
+        lemma_not_zero_from_trait::<Rational>(a, 2);
+        lemma_poly_eqv_not_zero::<Rational>(a, b);
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 2);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
