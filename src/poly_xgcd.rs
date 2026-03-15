@@ -1,9 +1,11 @@
 use crate::assoc_lemmas;
 use crate::poly_arith::*;
-use crate::ring_lemmas::lemma_sum_zero_fn;
+use crate::ring_lemmas::{lemma_sum_extend_right_zero, lemma_sum_zero_fn};
 use verus_algebra::lemmas::additive_group_lemmas;
 use verus_algebra::lemmas::ring_lemmas::{lemma_mul_congruence, lemma_mul_zero_left};
-use verus_algebra::summation::{lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_split, sum};
+use verus_algebra::summation::{
+    lemma_sum_add, lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_split, sum,
+};
 use verus_algebra::traits::field::Field;
 use verus_algebra::traits::ring::Ring;
 use vstd::prelude::*;
@@ -553,13 +555,215 @@ pub proof fn lemma_poly_mul_raw_dist_add_right<F: Ring>(
             poly_add(poly_mul_raw(a, c), poly_mul_raw(b, c))
         ),
 {
-    // This follows from the distributivity of convolution
-    // (a+b)*c = sum_j (a[j]+b[j]) * c[k-j] = sum_j a[j]*c[k-j] + b[j]*c[k-j]
-    //         = (a*c) + (b*c)
-    assume(poly_eqv(
-        poly_mul_raw(poly_add(a, b), c),
-        poly_add(poly_mul_raw(a, c), poly_mul_raw(b, c))
-    ));
+    broadcast use group_seq_axioms;
+
+    let sum_ab = poly_add(a, b);
+    let lhs = poly_mul_raw(sum_ab, c);
+    let ac = poly_mul_raw(a, c);
+    let bc = poly_mul_raw(b, c);
+    let rhs = poly_add(ac, bc);
+
+    let out_len = lhs.len();
+    // lhs.len() = sum_ab.len() + c.len() - 1 = max(a.len(), b.len()) + c.len() - 1
+    // rhs.len() = max(ac.len(), bc.len()) = max(a.len() + c.len() - 1, b.len() + c.len() - 1) = max(a.len(), b.len()) + c.len() - 1
+    // So lhs.len() == rhs.len()
+    let max_ab = if a.len() >= b.len() { a.len() } else { b.len() };
+    assert(sum_ab.len() == max_ab);
+    assert(lhs.len() == max_ab + c.len() - 1);
+    assert(ac.len() == a.len() + c.len() - 1);
+    assert(bc.len() == b.len() + c.len() - 1);
+    assert(rhs.len() == max_ab + c.len() - 1);
+
+    assert forall|k: int| 0 <= k < out_len as int
+        implies lhs[k].eqv(rhs[k])
+    by {
+        // LHS[k] = conv_coeff(sum_ab, c, k) = sum_j coeff(sum_ab, j) * coeff(c, k-j)
+        // RHS[k] = ac[k] + bc[k] = conv_coeff(a, c, k) + conv_coeff(b, c, k)
+
+        // Key fact: sum_ab[j] = coeff(a, j) + coeff(b, j) for all j
+        // This follows from the definition of poly_add
+        broadcast use group_seq_axioms;
+
+        // Establish: coeff(sum_ab, j) ≡ coeff(a, j) + coeff(b, j) for all j in range
+        assert forall|j: int| 0 <= j < sum_ab.len() as int
+            implies coeff(sum_ab, j).eqv(coeff(a, j).add(coeff(b, j)))
+        by {
+            assert(sum_ab[j] =~= coeff(a, j).add(coeff(b, j)));
+            assert(coeff(sum_ab, j) =~= sum_ab[j]);
+            F::axiom_eq_implies_eqv(coeff(sum_ab, j), sum_ab[j]);
+            F::axiom_eq_implies_eqv(sum_ab[j], coeff(a, j).add(coeff(b, j)));
+            F::axiom_eqv_transitive(coeff(sum_ab, j), sum_ab[j], coeff(a, j).add(coeff(b, j)));
+        };
+
+        // Now use sum_add lemma: sum(f + g) = sum(f) + sum(g)
+        let f = |j: int| coeff(a, j).mul(coeff(c, k - j));
+        let g = |j: int| coeff(b, j).mul(coeff(c, k - j));
+        let fg = |j: int| coeff(sum_ab, j).mul(coeff(c, k - j));
+
+        // Step 2: Show fg(j) ≡ f(j) + g(j) using distributivity
+        assert forall|j: int| 0 <= j < sum_ab.len() as int
+            implies (#[trigger] fg(j)).eqv(f(j).add(g(j)))
+        by {
+            // Re-derive: coeff(sum_ab, j) ≡ coeff(a, j) + coeff(b, j)
+            // Since sum_ab = poly_add(a, b) = Seq::new(max_len, |i| coeff(a, i).add(coeff(b, i)))
+            // And we have j < sum_ab.len(), so sum_ab[j] is well-defined
+            broadcast use group_seq_axioms;
+
+            // From axiom_seq_new_index: Seq::new(len, f)[i] == f(i)
+            // sum_ab = Seq::new(max_len, |i| coeff(a, i).add(coeff(b, i)))
+            // So: sum_ab[j] == coeff(a, j).add(coeff(b, j))
+            assert(sum_ab[j] == coeff(a, j).add(coeff(b, j)));
+
+            // For j < sum_ab.len(), coeff(sum_ab, j) returns sum_ab[j]
+            assert(coeff(sum_ab, j) == sum_ab[j]);
+
+            // Chain: coeff(sum_ab, j) == sum_ab[j] == coeff(a, j) + coeff(b, j)
+            // Convert to equivalence
+            F::axiom_eq_implies_eqv(coeff(sum_ab, j), sum_ab[j]);
+            F::axiom_eq_implies_eqv(sum_ab[j], coeff(a, j).add(coeff(b, j)));
+            F::axiom_eqv_transitive(coeff(sum_ab, j), sum_ab[j], coeff(a, j).add(coeff(b, j)));
+
+            // Now: coeff(sum_ab, j) ≡ coeff(a, j) + coeff(b, j)
+
+            // Apply distributivity: (a + b) * c ≡ a*c + b*c
+            F::axiom_mul_distributes_left(coeff(a, j), coeff(b, j), coeff(c, k - j));
+
+            // The second precondition for lemma_mul_congruence is reflexivity
+            F::axiom_eqv_reflexive(coeff(c, k - j));
+
+            // Use the fact that multiplication respects equivalence
+            lemma_mul_congruence::<F>(
+                coeff(sum_ab, j),
+                coeff(a, j).add(coeff(b, j)),
+                coeff(c, k - j),
+                coeff(c, k - j)
+            );
+
+            // Now: fg(j) ≡ (coeff(a, j) + coeff(b, j)) * coeff(c, k-j)
+            // And from distributivity: (coeff(a,j) + coeff(b,j)) * coeff(c, k-j)
+            //                           ≡ coeff(a,j)*coeff(c, k-j) + coeff(b,j)*coeff(c, k-j)
+
+            // Recognize f(j) and g(j)
+            // f(j) = coeff(a, j).mul(coeff(c, k - j))
+            // g(j) = coeff(b, j).mul(coeff(c, k - j))
+            // So f(j) + g(j) = coeff(a,j)*coeff(c, k-j) + coeff(b,j)*coeff(c, k-j)
+
+            // We need to show:
+            // (coeff(a,j) + coeff(b,j)) * coeff(c, k-j) ≡ f(j) + g(j)
+
+            // From distributivity axiom:
+            // (coeff(a,j) + coeff(b,j)) * coeff(c, k-j)
+            //   ≡ coeff(a,j)*coeff(c, k-j) + coeff(b,j)*coeff(c, k-j)
+
+            // And f(j).add(g(j)) = coeff(a,j)*coeff(c, k-j) + coeff(b,j)*coeff(c, k-j)
+            // So we need: coeff(a,j)*coeff(c, k-j) + coeff(b,j)*coeff(c, k-j) ≡ f(j) + g(j)
+
+            // But f(j) == coeff(a, j).mul(coeff(c, k - j)) and g(j) == coeff(b, j).mul(coeff(c, k - j))
+            // So f(j) + g(j) == coeff(a,j)*coeff(c, k-j) + coeff(b,j)*coeff(c, k-j)
+            assert(f(j) == coeff(a, j).mul(coeff(c, k - j)));
+            assert(g(j) == coeff(b, j).mul(coeff(c, k - j)));
+            assert(f(j).add(g(j)) == coeff(a, j).mul(coeff(c, k - j)).add(coeff(b, j).mul(coeff(c, k - j))));
+
+            // Convert equality to equivalence
+            F::axiom_eq_implies_eqv(
+                (coeff(a, j).add(coeff(b, j))).mul(coeff(c, k - j)),
+                coeff(a, j).mul(coeff(c, k - j)).add(coeff(b, j).mul(coeff(c, k - j)))
+            );
+            F::axiom_eq_implies_eqv(
+                coeff(a, j).mul(coeff(c, k - j)).add(coeff(b, j).mul(coeff(c, k - j))),
+                f(j).add(g(j))
+            );
+            F::axiom_eqv_transitive(
+                (coeff(a, j).add(coeff(b, j))).mul(coeff(c, k - j)),
+                coeff(a, j).mul(coeff(c, k - j)).add(coeff(b, j).mul(coeff(c, k - j))),
+                f(j).add(g(j))
+            );
+
+            // Final chain: fg(j) ≡ (coeff(a,j) + coeff(b,j)) * coeff(c, k-j) ≡ f(j) + g(j)
+            F::axiom_eqv_transitive(
+                fg(j),
+                (coeff(a, j).add(coeff(b, j))).mul(coeff(c, k - j)),
+                f(j).add(g(j))
+            );
+        };
+
+        // sum(fg) ≡ sum(f + g) ≡ sum(f) + sum(g)
+        lemma_sum_congruence::<F>(fg, |j: int| f(j).add(g(j)), 0, sum_ab.len() as int);
+        lemma_sum_add::<F>(f, g, 0, sum_ab.len() as int);
+
+        // conv_coeff(sum_ab, c, k) = sum_j coeff(sum_ab, j) * coeff(c, k-j) = sum(fg)
+        // conv_coeff(a, c, k) = sum(f) over [0, a.len())
+        // conv_coeff(b, c, k) = sum(g) over [0, b.len())
+
+        // By definition: conv_coeff(sum_ab, c, k) = sum(|j| coeff(sum_ab, j) * coeff(c, k-j), 0, sum_ab.len())
+        // And fg = |j| coeff(sum_ab, j) * coeff(c, k-j)
+        // So conv_coeff(sum_ab, c, k) == sum(fg, 0, sum_ab.len())
+        assert(conv_coeff(sum_ab, c, k) == sum::<F>(fg, 0, sum_ab.len() as int));
+        assert(conv_coeff(a, c, k) == sum::<F>(f, 0, a.len() as int));
+        assert(conv_coeff(b, c, k) == sum::<F>(g, 0, b.len() as int));
+
+        // Convert to equivalence
+        F::axiom_eq_implies_eqv(conv_coeff(sum_ab, c, k), sum::<F>(fg, 0, sum_ab.len() as int));
+        F::axiom_eq_implies_eqv(conv_coeff(a, c, k), sum::<F>(f, 0, a.len() as int));
+        F::axiom_eq_implies_eqv(conv_coeff(b, c, k), sum::<F>(g, 0, b.len() as int));
+
+        // Sum ranges may differ; need to handle
+        let max_ab = if a.len() >= b.len() { a.len() } else { b.len() };
+        assert(sum_ab.len() == max_ab);
+
+        // For j >= a.len(), coeff(a, j) = 0, so f(j) = 0
+        assert forall|j: int| a.len() as int <= j < sum_ab.len() as int
+            implies (#[trigger] f(j)).eqv(F::zero())
+        by {
+            assert(coeff(a, j) =~= F::zero());
+            lemma_mul_zero_left::<F>(coeff(c, k - j));
+        };
+
+        // For j >= b.len(), coeff(b, j) = 0, so g(j) = 0
+        assert forall|j: int| b.len() as int <= j < sum_ab.len() as int
+            implies (#[trigger] g(j)).eqv(F::zero())
+        by {
+            assert(coeff(b, j) =~= F::zero());
+            lemma_mul_zero_left::<F>(coeff(c, k - j));
+        };
+
+        // Extend sum(f, 0, a.len()) to sum(f, 0, sum_ab.len())
+        lemma_sum_extend_right_zero::<F>(f, 0, a.len() as int, sum_ab.len() as int);
+
+        // Extend sum(g, 0, b.len()) to sum(g, 0, sum_ab.len())
+        lemma_sum_extend_right_zero::<F>(g, 0, b.len() as int, sum_ab.len() as int);
+
+        // Now: sum(f, 0, sum_ab.len()) ≡ sum(f, 0, a.len()) ≡ conv_coeff(a, c, k)
+        // And: sum(g, 0, sum_ab.len()) ≡ sum(g, 0, b.len()) ≡ conv_coeff(b, c, k)
+
+        let sum_f = sum::<F>(f, 0, sum_ab.len() as int);
+        let sum_g = sum::<F>(g, 0, sum_ab.len() as int);
+        let sum_fg = sum::<F>(fg, 0, sum_ab.len() as int);
+
+        // From lemma_sum_add: sum_fg ≡ sum_f + sum_g
+        // From lemma_sum_extend_right_zero: sum_f ≡ conv_coeff(a, c, k), sum_g ≡ conv_coeff(b, c, k)
+
+        F::axiom_eqv_transitive(sum_f, sum::<F>(f, 0, a.len() as int), conv_coeff(a, c, k));
+        F::axiom_eqv_transitive(sum_g, sum::<F>(g, 0, b.len() as int), conv_coeff(b, c, k));
+
+        // So sum_fg ≡ conv_coeff(a, c, k) + conv_coeff(b, c, k)
+        additive_group_lemmas::lemma_add_congruence::<F>(
+            sum_f, conv_coeff(a, c, k),
+            sum_g, conv_coeff(b, c, k)
+        );
+        F::axiom_eqv_transitive(
+            sum_fg,
+            sum_f.add(sum_g),
+            conv_coeff(a, c, k).add(conv_coeff(b, c, k))
+        );
+
+        // And sum_fg ≡ conv_coeff(sum_ab, c, k)
+        F::axiom_eqv_transitive(sum_fg, conv_coeff(sum_ab, c, k), sum_f.add(sum_g));
+        F::axiom_eqv_transitive(sum_f.add(sum_g), conv_coeff(a, c, k).add(conv_coeff(b, c, k)), rhs[k]);
+
+        // Finally: conv_coeff(sum_ab, c, k) ≡ conv_coeff(a, c, k) + conv_coeff(b, c, k) ≡ rhs[k]
+        F::axiom_eqv_transitive(conv_coeff(sum_ab, c, k), sum_fg, rhs[k]);
+    };
 }
 
 /// Lemma: poly_mul_raw distributes over poly_sub (right): (a - b) * c ≡ a*c - b*c
