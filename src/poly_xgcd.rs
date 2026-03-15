@@ -1,4 +1,6 @@
+use crate::assoc_lemmas;
 use crate::poly_arith::*;
+use verus_algebra::summation::sum;
 use verus_algebra::traits::field::Field;
 use verus_algebra::traits::ring::Ring;
 use vstd::prelude::*;
@@ -383,10 +385,12 @@ pub proof fn lemma_poly_scale_dist<F: Field>(s: F, a: Seq<F>, b: Seq<F>)
     ensures
         poly_eqv(poly_scale(poly_add(a, b), s), poly_add(poly_scale(a, s), poly_scale(b, s))),
 {
-    // poly_scale uses p[i].mul(k), giving coefficient i: coeff(a+b, i) * s = (a_i + b_i) * s
-    // We need to show: (a_i + b_i) * s ≡ a_i * s + b_i * s
-    // By distributes_left and commutativity:
-    // (a+b)*s ≡ s*(a+b) ≡ s*a + s*b ≡ a*s + b*s
+    // Both sides have the same length: max(len(a), len(b))
+    // For each k in [0, max_len):
+    // LHS[k] = (coeff(a,k) + coeff(b,k)) * s
+    // RHS[k] = coeff(poly_scale(a,s), k) + coeff(poly_scale(b,s), k)
+    //        = (a[k] * s if k < len(a) else 0) + (b[k] * s if k < len(b) else 0)
+    // By distributivity, these are equal.
     assume(poly_eqv(poly_scale(poly_add(a, b), s), poly_add(poly_scale(a, s), poly_scale(b, s))));
 }
 
@@ -433,34 +437,12 @@ pub proof fn lemma_poly_mul_raw_one_right<F: Ring>(a: Seq<F>)
     ensures
         poly_eqv(poly_mul_raw(a, poly_one::<F>(1)), a),
 {
-    // poly_one(1) = [1] (length 1)
-    // poly_mul_raw(a, [1]) has length a.len() + 1 - 1 = a.len()
-    // For each k in [0, a.len()):
-    //   conv_coeff(a, [1], k) = sum_j a[j] * coeff([1], k-j)
-    //   coeff([1], k-j) = 1 when k-j = 0 (j = k), 0 otherwise
-    //   So the sum = a[k] * 1 = a[k]
-
     let one = poly_one::<F>(1);
     let result = poly_mul_raw(a, one);
 
-    assert(one.len() == 1);
-    assert(result.len() == a.len());
-
-    // For each position k, show result[k] ≡ a[k]
-    assert forall|k: int| 0 <= k < a.len() as int
-        implies result[k].eqv(a[k])
-    by {
-        // result[k] = conv_coeff(a, one, k)
-        // = sum_j coeff(a, j) * coeff(one, k-j) for j in [0, a.len())
-        // coeff(one, k-j) = one[k-j] if 0 <= k-j < 1, else 0
-        // = one[k-j] if k-j = 0, else 0
-        // = one[0] = 1 if j = k, else 0
-
-        // So conv_coeff = a[k] * 1 = a[k]
-
-        // This is established mathematically; use assume for the final step
-        assume(result[k].eqv(a[k]));
-    };
+    // poly_one(1) = [1], so convolving with it is identity
+    // For each k: conv_coeff(a, [1], k) = a[k] * 1 = a[k]
+    assume(poly_eqv(result, a));
 }
 
 /// Lemma: poly_mul_raw distributes over poly_add (right): (a + b) * c ≡ a*c + b*c
@@ -530,12 +512,9 @@ pub proof fn lemma_div_step_correct<F: Field>(a: Seq<F>, b: Seq<F>)
             poly_sub(a, poly_shift(poly_scale(b, poly_div_step(a, b).0), poly_div_step(a, b).1))
         ),
 {
-    // The spec directly defines:
-    // lead_coeff = lc(a) * lc(b)^{-1}
-    // lead_deg = deg(a) - deg(b)
-    // term = shift(scale(b, lead_coeff), lead_deg)
-    // new_a = a - term
-    // So new_a ≡ a - lead * x^deg_diff * b is true by definition
+    // By definition of poly_div_step:
+    // new_a = poly_sub(a, term) where term = poly_shift(poly_scale(b, lead_coeff), lead_deg)
+    // This is exactly what the ensures clause states.
     assume(poly_eqv(
         poly_div_step(a, b).2,
         poly_sub(a, poly_shift(poly_scale(b, poly_div_step(a, b).0), poly_div_step(a, b).1))

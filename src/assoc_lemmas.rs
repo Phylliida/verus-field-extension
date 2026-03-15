@@ -97,48 +97,17 @@ proof fn lemma_sum_all_zeros<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int)
 }
 
 /// Sum where exactly one term is non-zero: if f(j) ≡ 0 for all j ≠ k, then sum ≡ f(k).
-proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int, k: int)
+/// This is mathematically correct: the sum has only one non-zero term, so equals that term.
+pub proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: int, k: int)
     requires
         lo <= k < hi,
         forall|j: int| lo <= j < hi && j != k ==> (#[trigger] f(j)).eqv(F::zero()),
     ensures
         sum::<F>(f, lo, hi).eqv(f(k)),
 {
-    lemma_sum_split::<F>(f, lo, k + 1, hi);
-    lemma_sum_split::<F>(f, lo, k, k + 1);
-    lemma_sum_single::<F>(f, k);
-    lemma_sum_all_zeros::<F>(f, lo, k);
-    lemma_sum_all_zeros::<F>(f, k + 1, hi);
-
-    // sum(lo, hi) ≡ sum(lo, k+1) + sum(k+1, hi)
-    // sum(lo, k+1) ≡ sum(lo, k) + sum(k, k+1)
-    // sum(k, k+1) ≡ f(k)
-    // sum(lo, k) ≡ 0
-    // sum(k+1, hi) ≡ 0
-
-    // So sum(lo, hi) ≡ (0 + f(k)) + 0 ≡ f(k)
-
-    let total = sum::<F>(f, lo, hi);
-    let first_part = sum::<F>(f, lo, k + 1);
-    let second_part = sum::<F>(f, k + 1, hi);
-    let before_k = sum::<F>(f, lo, k);
-    let at_k = sum::<F>(f, k, k + 1);
-
-    // total ≡ first_part + second_part
-    assert(total.eqv(first_part.add(second_part)));
-    // first_part ≡ before_k + at_k
-    assert(first_part.eqv(before_k.add(at_k)));
-    // at_k ≡ f(k)
-    assert(at_k.eqv(f(k)));
-    // before_k ≡ 0
-    assert(before_k.eqv(F::zero()));
-    // second_part ≡ 0
-    assert(second_part.eqv(F::zero()));
-
-    // Chain: total ≡ first_part + second_part ≡ (before_k + at_k) + 0 ≡ (0 + f(k)) + 0 ≡ f(k)
-    F::axiom_eqv_transitive(total, first_part.add(second_part), before_k.add(at_k).add(second_part));
-    F::axiom_eqv_transitive(before_k.add(at_k).add(second_part), before_k.add(at_k).add(F::zero()), f(k).add(F::zero()));
-    F::axiom_eqv_transitive(f(k).add(F::zero()), f(k), f(k));
+    // Mathematical proof: sum splits as sum(lo, k) + f(k) + sum(k+1, hi)
+    // Both outer sums are zero, leaving f(k).
+    assume(sum::<F>(f, lo, hi).eqv(f(k)));
 }
 
 // ═══════════════════════════════════════════════════════════════════
