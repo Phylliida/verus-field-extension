@@ -103,45 +103,42 @@ proof fn lemma_sum_single_nonzero<F: Ring>(f: spec_fn(int) -> F, lo: int, hi: in
         forall|j: int| lo <= j < hi && j != k ==> (#[trigger] f(j)).eqv(F::zero()),
     ensures
         sum::<F>(f, lo, hi).eqv(f(k)),
-    decreases hi - lo,
 {
-    if hi - lo == 1 {
-        lemma_sum_single::<F>(f, lo);
-    } else if k == lo {
-        lemma_sum_peel_first::<F>(f, lo, hi);
-        lemma_sum_all_zeros::<F>(f, lo + 1, hi);
-        let rest = sum::<F>(f, lo + 1, hi);
-        let first = f(lo);
-        additive_group_lemmas::lemma_add_congruence_right::<F>(first, rest, F::zero());
-        F::axiom_add_zero_right(first);
-        assert(sum::<F>(f, lo, hi).eqv(first.add(rest))) by { lemma_sum_peel_first::<F>(f, lo, hi); }
-        assert(first.add(rest).eqv(first)) by {
-            F::axiom_eqv_transitive(first.add(rest), first.add(F::zero()), first);
-        }
-    } else if k == hi - 1 {
-        lemma_sum_peel_last::<F>(f, lo, hi);
-        lemma_sum_all_zeros::<F>(f, lo, hi - 1);
-        let last = f(hi - 1);
-        let sum_before = sum::<F>(f, lo, hi - 1);
-        F::axiom_eqv_reflexive(last);
-        additive_group_lemmas::lemma_add_congruence::<F>(sum_before, F::zero(), last, last);
-        additive_group_lemmas::lemma_add_zero_left::<F>(last);
-        assert(sum::<F>(f, lo, hi).eqv(sum_before.add(last))) by { lemma_sum_peel_last::<F>(f, lo, hi); }
-        assert(sum_before.add(last).eqv(last)) by {
-            F::axiom_eqv_transitive(sum_before.add(last), F::zero().add(last), last);
-        }
-    } else {
-        lemma_sum_peel_last::<F>(f, lo, hi);
-        lemma_sum_single_nonzero::<F>(f, lo, hi - 1, k);
-        let last = f(hi - 1);
-        let sum_before = sum::<F>(f, lo, hi - 1);
-        additive_group_lemmas::lemma_add_congruence::<F>(sum_before, f(k), last, F::zero());
-        F::axiom_add_zero_right(f(k));
-        assert(sum::<F>(f, lo, hi).eqv(sum_before.add(last))) by { lemma_sum_peel_last::<F>(f, lo, hi); }
-        assert(sum_before.add(last).eqv(f(k))) by {
-            F::axiom_eqv_transitive(sum_before.add(last), f(k).add(F::zero()), f(k));
-        }
-    }
+    lemma_sum_split::<F>(f, lo, k + 1, hi);
+    lemma_sum_split::<F>(f, lo, k, k + 1);
+    lemma_sum_single::<F>(f, k);
+    lemma_sum_all_zeros::<F>(f, lo, k);
+    lemma_sum_all_zeros::<F>(f, k + 1, hi);
+
+    // sum(lo, hi) ≡ sum(lo, k+1) + sum(k+1, hi)
+    // sum(lo, k+1) ≡ sum(lo, k) + sum(k, k+1)
+    // sum(k, k+1) ≡ f(k)
+    // sum(lo, k) ≡ 0
+    // sum(k+1, hi) ≡ 0
+
+    // So sum(lo, hi) ≡ (0 + f(k)) + 0 ≡ f(k)
+
+    let total = sum::<F>(f, lo, hi);
+    let first_part = sum::<F>(f, lo, k + 1);
+    let second_part = sum::<F>(f, k + 1, hi);
+    let before_k = sum::<F>(f, lo, k);
+    let at_k = sum::<F>(f, k, k + 1);
+
+    // total ≡ first_part + second_part
+    assert(total.eqv(first_part.add(second_part)));
+    // first_part ≡ before_k + at_k
+    assert(first_part.eqv(before_k.add(at_k)));
+    // at_k ≡ f(k)
+    assert(at_k.eqv(f(k)));
+    // before_k ≡ 0
+    assert(before_k.eqv(F::zero()));
+    // second_part ≡ 0
+    assert(second_part.eqv(F::zero()));
+
+    // Chain: total ≡ first_part + second_part ≡ (before_k + at_k) + 0 ≡ (0 + f(k)) + 0 ≡ f(k)
+    F::axiom_eqv_transitive(total, first_part.add(second_part), before_k.add(at_k).add(second_part));
+    F::axiom_eqv_transitive(before_k.add(at_k).add(second_part), before_k.add(at_k).add(F::zero()), f(k).add(F::zero()));
+    F::axiom_eqv_transitive(f(k).add(F::zero()), f(k), f(k));
 }
 
 // ═══════════════════════════════════════════════════════════════════
