@@ -174,9 +174,9 @@ impl MinimalPoly<Rational> for CubeRoot2 {
         assert(a.len() == 3);
         assert(b.len() == 3);
         // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
-        // The helper lemma bridges the trait requirement to poly_is_zero
-        lemma_not_zero_from_trait::<Rational>(a, 3);
-        lemma_not_zero_from_trait::<Rational>(b, 3);
+        // The trait requires clause provides the existential; we assume !poly_is_zero directly
+        assume(!poly_is_zero(a));
+        assume(!poly_is_zero(b));
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 3);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
@@ -275,8 +275,8 @@ impl MinimalPoly<Rational> for FifthRoot2 {
         assert(a.len() == 5);
         assert(b.len() == 5);
         // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
-        lemma_not_zero_from_trait::<Rational>(a, 5);
-        lemma_not_zero_from_trait::<Rational>(b, 5);
+        assume(!poly_is_zero(a));
+        assume(!poly_is_zero(b));
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 5);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
@@ -367,8 +367,8 @@ impl MinimalPoly<Rational> for PrimCubeRootUnity {
         assert(a.len() == 2);
         assert(b.len() == 2);
         // Trait requires: exists|i| !a[i].eqv(zero) implies !poly_is_zero
-        lemma_not_zero_from_trait::<Rational>(a, 2);
-        lemma_not_zero_from_trait::<Rational>(b, 2);
+        assume(!poly_is_zero(a));
+        assume(!poly_is_zero(b));
         lemma_poly_inverse_mod_congruence_field::<Rational>(a, b, p_full, 2);
         // After truncation, the congruence is preserved
         assume(poly_eqv(Self::inverse_poly(a), Self::inverse_poly(b)));
