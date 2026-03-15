@@ -1,11 +1,13 @@
 use crate::assoc_lemmas;
 use crate::poly_arith::*;
-use crate::ring_lemmas::{lemma_sum_extend_right_zero, lemma_sum_zero_fn};
+use crate::ring_lemmas::{
+    lemma_sum_extend_left_zero, lemma_sum_extend_right_zero, lemma_sum_zero_fn,
+};
 use verus_algebra::lemmas::additive_group_lemmas;
 use verus_algebra::lemmas::ring_lemmas::{lemma_mul_congruence, lemma_mul_zero_left};
 use verus_algebra::summation::{
-    lemma_sum_add, lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_reindex, lemma_sum_split,
-    sum,
+    lemma_sum_add, lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_peel_last,
+    lemma_sum_reindex, lemma_sum_split, sum,
 };
 use verus_algebra::traits::field::Field;
 use verus_algebra::traits::ring::Ring;
@@ -425,7 +427,6 @@ pub proof fn lemma_poly_shift_coeff<F: Ring>(p: Seq<F>, n: nat, k: int)
     }
 }
 
-/// Lemma: poly_mul_raw commutative: a * b ≡ b * a
 pub proof fn lemma_poly_mul_raw_commutative<F: Ring>(a: Seq<F>, b: Seq<F>)
     requires
         a.len() > 0,
@@ -445,241 +446,252 @@ pub proof fn lemma_poly_mul_raw_commutative<F: Ring>(a: Seq<F>, b: Seq<F>)
     assert forall|k: int| 0 <= k < out_len as int
         implies ab[k].eqv(ba[k])
     by {
-        // ab[k] = conv_coeff(a, b, k) = sum_j a[j] * b[k-j]
-        // ba[k] = conv_coeff(b, a, k) = sum_j b[j] * a[k-j]
-
-        // We need to show these sums are equivalent.
-        // Strategy: reindex j -> k-j and use commutativity
-
         let n_a = a.len() as int;
         let n_b = b.len() as int;
-
-        // conv_coeff(a, b, k) = sum(|j| coeff(a,j) * coeff(b,k-j), 0, n_a)
-        // conv_coeff(b, a, k) = sum(|j| coeff(b,j) * coeff(a,k-j), 0, n_b)
-
-        // First, note that for the convolution:
-        // - a[j] is nonzero only for 0 <= j < n_a
-        // - b[k-j] is nonzero only for 0 <= k-j < n_b, i.e., k-n_b < j <= k
-
-        // So the effective range for j is: max(0, k-n_b+1) <= j <= min(k, n_a-1)
-
-        // For commutativity, we use the reindexing j' = k - j:
-        // sum_j a[j] * b[k-j] = sum_{j'} a[k-j'] * b[j']
-        // And by mul_commutative: a[k-j'] * b[j'] = b[j'] * a[k-j']
-
-        // Define f(j) = coeff(a, j) * coeff(b, k-j)
-        // Define g(j) = coeff(b, j) * coeff(a, k-j)
 
         let f = |j: int| coeff(a, j).mul(coeff(b, k - j));
         let g = |j: int| coeff(b, j).mul(coeff(a, k - j));
 
-        // conv_coeff(a, b, k) = sum(f, 0, n_a)
-        // conv_coeff(b, a, k) = sum(g, 0, n_b)
         assert(conv_coeff(a, b, k) == sum::<F>(f, 0, n_a));
         assert(conv_coeff(b, a, k) == sum::<F>(g, 0, n_b));
 
-        // Reindex f: sum_j f(j) = sum_j f(k-j) with appropriate bounds
-        // f(k-j) = coeff(a, k-j) * coeff(b, k-(k-j)) = coeff(a, k-j) * coeff(b, j)
-
-        // Use lemma_sum_reindex to shift the index
-        // sum(f, 0, n_a) = sum(|j| f(k-j), k-n_a+1, k+1)
-        // But we need to be careful about the ranges
-
-        // Alternative approach: use the symmetry directly
-        // For each j where both terms contribute:
-        // f(j) = a[j] * b[k-j]
-        // g(j) = b[j] * a[k-j]
-
-        // These are the same term but with indices swapped!
-        // When j ranges over [0, n_a), f(j) covers all products
-        // When j ranges over [0, n_b), g(j) covers the same products in different order
-
-        // Let's use pointwise commutativity + congruence
         assert forall|j: int| 0 <= j < n_a
             implies (#[trigger] f(j)).eqv(g(k - j))
         by {
-            // f(j) = coeff(a, j) * coeff(b, k-j)
-            // g(k-j) = coeff(b, k-j) * coeff(a, k-(k-j)) = coeff(b, k-j) * coeff(a, j)
-            // By mul_commutative: a*j * b*(k-j) = b*(k-j) * a*j
             F::axiom_mul_commutative(coeff(a, j), coeff(b, k - j));
         };
 
-        // Now we need to show that sum(f, 0, n_a) ≡ sum(g, 0, n_b)
-        // Using reindexing: sum(f, 0, n_a) ≡ sum(|j| g(j), ...)
-
-        // The key insight is that both sums cover the same terms (just reindexed)
-        // f(j) is nonzero only when 0 <= j < n_a AND 0 <= k-j < n_b
-        // g(j) is nonzero only when 0 <= j < n_b AND 0 <= k-j < n_a
-
-        // These constraints are symmetric! So both sums cover exactly the same products.
-
-        // Use sum_reindex on f with shift k
-        lemma_sum_reindex::<F>(f, 0, n_a, k);
-        // This gives: sum(f, 0, n_a) ≡ sum(|j| f(j+k), -k, n_a-k)
-        // Hmm, this doesn't quite give us what we want.
-
-        // Alternative: Use the bijection j -> k-j
-        // For j in [0, n_a): f(j) = coeff(a,j) * coeff(b,k-j)
-        // For j' = k-j in [k-n_a+1, k]: f(k-j') = coeff(a,k-j') * coeff(b,j')
-
-        // Let's prove by showing each sum equals a common form
-
-        // Both sums equal sum over all i,j such that i+j=k:
-        // sum_i sum_j a[i] * b[j] where i+j=k
-
-        // Actually, let's use a simpler approach:
-        // Show sum(f, 0, n_a) ≡ sum(g, 0, n_b) by establishing
-        // that outside the effective range, terms are zero
-
-        // Effective range for f: j such that 0 <= j < n_a AND 0 <= k-j < n_b
-        // = j such that max(0, k-n_b+1) <= j < min(n_a, k+1)
-
-        // For j outside this range, f(j) ≡ 0
-        assert forall|j: int| 0 <= j < n_a && (j < k - n_b + 1 || j > k || k - j < 0)
+        assert forall|j: int| 0 <= j < n_a && (j < k - n_b + 1 || j > k)
             implies (#[trigger] f(j)).eqv(F::zero())
         by {
             if j < k - n_b + 1 {
-                // k - j > n_b - 1, so k - j >= n_b
                 assert(k - j >= n_b);
                 assert(coeff(b, k - j) =~= F::zero());
                 F::axiom_mul_zero_right(coeff(a, j));
-            } else if j > k {
-                // k - j < 0
-                assert(k - j < 0);
-                assert(coeff(b, k - j) =~= F::zero());
-                F::axiom_mul_zero_right(coeff(a, j));
             } else {
-                // k - j < 0
+                assert(j > k);
                 assert(k - j < 0);
                 assert(coeff(b, k - j) =~= F::zero());
                 F::axiom_mul_zero_right(coeff(a, j));
             }
         };
 
-        // Similarly for g
-        assert forall|j: int| 0 <= j < n_b && (j < k - n_a + 1 || j > k || k - j < 0)
+        assert forall|j: int| 0 <= j < n_b && (j < k - n_a + 1 || j > k)
             implies (#[trigger] g(j)).eqv(F::zero())
         by {
             if j < k - n_a + 1 {
                 assert(k - j >= n_a);
                 assert(coeff(a, k - j) =~= F::zero());
                 F::axiom_mul_zero_right(coeff(b, j));
-            } else if j > k {
-                assert(k - j < 0);
-                assert(coeff(a, k - j) =~= F::zero());
-                F::axiom_mul_zero_right(coeff(b, j));
             } else {
+                assert(j > k);
                 assert(k - j < 0);
                 assert(coeff(a, k - j) =~= F::zero());
                 F::axiom_mul_zero_right(coeff(b, j));
             }
         };
 
-        // Now both sums are dominated by the "effective range" where terms are non-zero
-        // The effective range for f is: j in [max(0, k-n_b+1), min(n_a, k+1))
-        // The effective range for g is: j in [max(0, k-n_a+1), min(n_b, k+1))
-
-        // These ranges are symmetric: one is k minus the other
-
-        // Key insight: sum(f, 0, n_a) and sum(g, 0, n_b) both equal the sum over
-        // the products a[i] * b[j] where i + j = k (in the valid range)
-
-        // We use sum_reindex to transform one sum into the other
-
-        // First, show that terms outside [max(0, k-n_b+1), min(n_a-1, k)] are zero for f
         let lo_f = if 0 > k - n_b + 1 { 0 } else { k - n_b + 1 };
         let hi_f = if n_a < k + 1 { n_a } else { k + 1 };
-
-        // For j in [0, lo_f) or j in [hi_f, n_a), f(j) ≡ 0
-        // We've established this above
-
-        // Similarly for g
         let lo_g = if 0 > k - n_a + 1 { 0 } else { k - n_a + 1 };
         let hi_g = if n_b < k + 1 { n_b } else { k + 1 };
 
-        // Now use sum_extend to shrink both sums to their effective ranges
-        // sum(f, 0, n_a) ≡ sum(f, lo_f, hi_f) (terms outside are zero)
-        // sum(g, 0, n_b) ≡ sum(g, lo_g, hi_g) (terms outside are zero)
-
-        // The bijection: j in [lo_f, hi_f) maps to k-j in [k-hi_f+1, k-lo_f+1) = [lo_g, hi_g)
-        // (approximately - need to verify)
-
-        // Actually, let's use sum_reindex directly:
-        // sum(f, 0, n_a) = sum(|j| coeff(a,j) * coeff(b,k-j), 0, n_a)
-        //
-        // Reindex with j' = k - j:
-        // = sum(|j'| coeff(a,k-j') * coeff(b,j'), k - (n_a-1), k + 1)
-        // = sum(|j'| coeff(b,j') * coeff(a,k-j'), k - n_a + 1, k + 1)  [by mul_commutative]
-        //
-        // Now extend/truncate to [0, n_b]:
-        // For j' < 0 or j' >= n_b, coeff(b, j') = 0, so the term is 0
-        // For j' such that k - j' < 0 or k - j' >= n_a, coeff(a, k-j') = 0
-
-        // Use sum_reindex to shift the index
-        lemma_sum_reindex::<F>(f, 0, n_a, k);
-        // sum(f, 0, n_a) ≡ sum(|j'| f(j' + k), -k, n_a - k)
-        // where f(j' + k) = coeff(a, j'+k) * coeff(b, k - (j' + k)) = coeff(a, j'+k) * coeff(b, -j')
-
-        // Hmm, this isn't quite right. Let me use a different approach.
-
-        // Actually, the simplest is to note that both sums equal the sum over products:
-        // Use sum_fubini-style reasoning, but that's more complex.
-
-        // For now, let's use the established facts about zero terms and congruence
-        // to argue that both sums are equal.
-
-        // Key fact: For j where both f(j) and g(k-j) are defined (in range),
-        // f(j) ≡ g(k-j) by mul_commutative.
-
-        // We can partition [0, n_a) into:
-        // - [0, lo_f): f(j) ≡ 0
-        // - [lo_f, hi_f): f(j) potentially non-zero, equals g(k-j)
-        // - [hi_f, n_a): f(j) ≡ 0
-
-        // Similarly for g on [0, n_b):
-        // - [0, lo_g): g(j) ≡ 0
-        // - [lo_g, hi_g): g(j) potentially non-zero
-        // - [hi_g, n_b): g(j) ≡ 0
-
-        // The key is that [lo_f, hi_f) and [lo_g, hi_g) have the same size,
-        // and the bijection j -> k-j maps one to the other.
-
-        // For a rigorous proof, we'd need:
-        // 1. hi_f - lo_f = hi_g - lo_g (same number of non-zero terms)
-        // 2. sum(f, lo_f, hi_f) ≡ sum(g, lo_g, hi_g) (by the bijection)
-
-        // Let's verify the ranges match:
         assert(lo_f <= hi_f);
         assert(lo_g <= hi_g);
 
-        // The number of potentially non-zero terms:
-        // For f: count of j in [0, n_a) with 0 <= k-j < n_b
-        // = count of j in [max(0, k-n_b+1), min(n_a, k+1))
+        assert forall|j: int| lo_f <= j < hi_f
+            implies (#[trigger] f(j)).eqv(g(k - j))
+        by {
+            assert(0 <= j < n_a);
+            F::axiom_mul_commutative(coeff(a, j), coeff(b, k - j));
+        };
 
-        // For g: count of j in [0, n_b) with 0 <= k-j < n_a
-        // = count of j in [max(0, k-n_a+1), min(n_b, k+1))
+        assert(k - hi_f + 1 >= lo_g) by {
+            if n_a < k + 1 {
+                assert(hi_f == n_a);
+            } else {
+                assert(hi_f == k + 1);
+                assert(k - hi_f + 1 == 0);
+                assert(lo_g >= 0);
+            }
+        };
 
-        // These counts are equal by symmetry of the conditions.
+        assert(k - lo_f + 1 <= hi_g) by {
+            if 0 > k - n_b + 1 {
+                assert(lo_f == 0);
+            } else {
+                assert(lo_f == k - n_b + 1);
+                assert(k - lo_f + 1 == n_b);
+                assert(hi_g <= n_b);
+            }
+        };
 
-        // Actually, let me just use a direct argument:
-        // Both sums equal the sum over all (i, j) with i + j = k of a[i] * b[j]
-        // And by mul_commutative, each term a[i] * b[j] ≡ b[j] * a[i]
+        assert forall|j: int| 0 <= j < lo_f implies (#[trigger] f(j)).eqv(F::zero()) by {
+            if j >= 0 {
+                assert(j < lo_f);
+                assert(j < k - n_b + 1);
+                assert(k - j >= n_b);
+                assert(coeff(b, k - j) =~= F::zero());
+                F::axiom_mul_zero_right(coeff(a, j));
+            }
+        };
 
-        // Since we've verified this compiles with the assume,
-        // let's just keep the structure and trust the mathematical argument.
+        assert forall|j: int| hi_f <= j < n_a implies (#[trigger] f(j)).eqv(F::zero()) by {
+            if n_a <= k + 1 {
+                assert(hi_f == n_a);
+            } else {
+                assert(hi_f == k + 1);
+                assert(j >= k + 1);
+                assert(j > k);
+                assert(coeff(b, k - j) =~= F::zero());
+                F::axiom_mul_zero_right(coeff(a, j));
+            }
+        };
 
-        // Final step: assert the equivalence using what we've established
-        // sum(f, 0, n_a) and sum(g, 0, n_b) are equivalent because:
-        // 1. Both sum the same products a[i] * b[j] with i + j = k
-        // 2. Each product appears the same number of times in each sum
-        // 3. By mul_commutative, a[i] * b[j] ≡ b[j] * a[i]
+        assert forall|j: int| 0 <= j < lo_g implies (#[trigger] g(j)).eqv(F::zero()) by {
+            if j >= 0 {
+                assert(j < lo_g);
+                assert(j < k - n_a + 1);
+                assert(k - j >= n_a);
+                assert(coeff(a, k - j) =~= F::zero());
+                F::axiom_mul_zero_right(coeff(b, j));
+            }
+        };
 
+        assert forall|j: int| hi_g <= j < n_b implies (#[trigger] g(j)).eqv(F::zero()) by {
+            if n_b <= k + 1 {
+                assert(hi_g == n_b);
+            } else {
+                assert(hi_g == k + 1);
+                assert(j >= k + 1);
+                assert(j > k);
+                assert(coeff(a, k - j) =~= F::zero());
+                F::axiom_mul_zero_right(coeff(b, j));
+            }
+        };
+
+        lemma_sum_extend_left_zero::<F>(f, 0, lo_f, n_a);
+        assert(sum::<F>(f, 0, n_a).eqv(sum::<F>(f, lo_f, n_a)));
+
+        lemma_sum_extend_right_zero::<F>(f, lo_f, hi_f, n_a);
+        assert(sum::<F>(f, lo_f, n_a).eqv(sum::<F>(f, lo_f, hi_f)));
+
+        F::axiom_eqv_transitive(sum::<F>(f, 0, n_a), sum::<F>(f, lo_f, n_a), sum::<F>(f, lo_f, hi_f));
+
+        lemma_sum_extend_left_zero::<F>(g, 0, lo_g, n_b);
+        assert(sum::<F>(g, 0, n_b).eqv(sum::<F>(g, lo_g, n_b)));
+
+        lemma_sum_extend_right_zero::<F>(g, lo_g, hi_g, n_b);
+        assert(sum::<F>(g, lo_g, n_b).eqv(sum::<F>(g, lo_g, hi_g)));
+
+        F::axiom_eqv_transitive(sum::<F>(g, 0, n_b), sum::<F>(g, lo_g, n_b), sum::<F>(g, lo_g, hi_g));
+
+        let num_terms = hi_f - lo_f;
+        assert(num_terms >= 0);
+
+        if num_terms == 0 {
+            lemma_sum_zero_fn::<F>(lo_f, hi_f);
+            lemma_sum_zero_fn::<F>(lo_g, hi_g);
+            assert(sum::<F>(f, lo_f, hi_f).eqv(F::zero()));
+            assert(sum::<F>(g, lo_g, hi_g).eqv(F::zero()));
+        } else {
+            lemma_sum_reflection_equiv::<F>(f, g, k, lo_f, hi_f, lo_g, hi_g);
+        }
+
+        F::axiom_eqv_transitive(
+            sum::<F>(f, 0, n_a),
+            sum::<F>(f, lo_f, hi_f),
+            sum::<F>(g, lo_g, hi_g),
+        );
+
+        F::axiom_eqv_symmetric(sum::<F>(g, lo_g, hi_g), sum::<F>(g, 0, n_b));
+        assert(sum::<F>(g, lo_g, hi_g).eqv(sum::<F>(g, 0, n_b)));
+
+        F::axiom_eqv_transitive(
+            sum::<F>(f, 0, n_a),
+            sum::<F>(g, lo_g, hi_g),
+            sum::<F>(g, 0, n_b),
+        );
+
+        assert(sum::<F>(f, 0, n_a).eqv(sum::<F>(g, 0, n_b)));
         assert(conv_coeff(a, b, k).eqv(conv_coeff(b, a, k)));
+
         F::axiom_eq_implies_eqv(ab[k], conv_coeff(a, b, k));
         F::axiom_eq_implies_eqv(ba[k], conv_coeff(b, a, k));
         F::axiom_eqv_transitive(ab[k], conv_coeff(a, b, k), conv_coeff(b, a, k));
         F::axiom_eqv_transitive(ab[k], conv_coeff(b, a, k), ba[k]);
     };
+}
+
+proof fn lemma_sum_reflection_equiv<F: Ring>(
+    f: spec_fn(int) -> F,
+    g: spec_fn(int) -> F,
+    k: int,
+    lo_f: int,
+    hi_f: int,
+    lo_g: int,
+    hi_g: int,
+)
+    requires
+        lo_f <= hi_f,
+        lo_g <= hi_g,
+        hi_f - lo_f == hi_g - lo_g,
+        forall|j: int| lo_f <= j < hi_f ==> (#[trigger] f(j)).eqv(g(k - j)),
+        k - hi_f + 1 == lo_g,
+        k - lo_f + 1 == hi_g,
+    ensures
+        sum::<F>(f, lo_f, hi_f).eqv(sum::<F>(g, lo_g, hi_g)),
+    decreases hi_f - lo_f,
+{
+    if lo_f >= hi_f {
+        F::axiom_eqv_reflexive(F::zero());
+    } else {
+        lemma_sum_peel_first::<F>(f, lo_f, hi_f);
+        lemma_sum_peel_last::<F>(g, lo_g, hi_g);
+
+        assert(f(lo_f).eqv(g(k - lo_f)));
+
+        let next_lo_f = lo_f + 1;
+        let next_hi_g = hi_g - 1;
+
+        lemma_sum_reflection_equiv::<F>(f, g, k, next_lo_f, hi_f, lo_g, next_hi_g);
+
+        assert(sum::<F>(f, next_lo_f, hi_f).eqv(sum::<F>(g, lo_g, next_hi_g)));
+
+        assert(g(k - lo_f) =~= g(hi_g - 1)) by {
+            assert(k - lo_f + 1 == hi_g);
+        };
+
+        additive_group_lemmas::lemma_add_congruence::<F>(
+            f(lo_f), g(hi_g - 1),
+            sum::<F>(f, next_lo_f, hi_f), sum::<F>(g, lo_g, next_hi_g),
+        );
+
+        F::axiom_eqv_transitive(
+            sum::<F>(f, lo_f, hi_f),
+            f(lo_f).add(sum::<F>(f, next_lo_f, hi_f)),
+            g(hi_g - 1).add(sum::<F>(g, lo_g, next_hi_g)),
+        );
+
+        F::axiom_add_commutative(g(hi_g - 1), sum::<F>(g, lo_g, next_hi_g));
+
+        assert(next_hi_g == hi_g - 1);
+
+        F::axiom_eqv_symmetric(sum::<F>(g, lo_g, next_hi_g).add(g(hi_g - 1)), sum::<F>(g, lo_g, hi_g));
+        assert(sum::<F>(g, lo_g, next_hi_g).add(g(hi_g - 1)).eqv(sum::<F>(g, lo_g, hi_g)));
+
+        F::axiom_eqv_transitive(
+            g(hi_g - 1).add(sum::<F>(g, lo_g, next_hi_g)),
+            sum::<F>(g, lo_g, next_hi_g).add(g(hi_g - 1)),
+            sum::<F>(g, lo_g, hi_g),
+        );
+
+        F::axiom_eqv_transitive(
+            sum::<F>(f, lo_f, hi_f),
+            g(hi_g - 1).add(sum::<F>(g, lo_g, next_hi_g)),
+            sum::<F>(g, lo_g, hi_g),
+        );
+    }
 }
 
 /// Lemma: poly_one coefficients

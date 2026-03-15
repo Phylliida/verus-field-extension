@@ -264,7 +264,7 @@ pub proof fn lemma_conv_delta_right<F: Ring>(a: Seq<F>, n: nat, k: int)
 
 /// Extend sum range to the left with zero terms.
 /// If f(i) ≡ 0 for all new_lo <= i < lo, then sum(f, new_lo, hi) ≡ sum(f, lo, hi).
-proof fn lemma_sum_extend_left_zero<F: Ring>(
+pub proof fn lemma_sum_extend_left_zero<F: Ring>(
     f: spec_fn(int) -> F, new_lo: int, lo: int, hi: int,
 )
     requires
