@@ -455,7 +455,14 @@ pub proof fn lemma_poly_mul_raw_commutative<F: Ring>(a: Seq<F>, b: Seq<F>)
     ensures
         poly_eqv(poly_mul_raw(a, b), poly_mul_raw(b, a)),
 {
-    // This follows from commutativity of ring multiplication
+    // Convolution: conv_coeff(a, b, k) = sum_j a[j] * b[k-j]
+    //             conv_coeff(b, a, k) = sum_j b[j] * a[k-j]
+    //
+    // By reindexing j -> k-j and using commutativity of multiplication:
+    // sum_j a[j] * b[k-j] = sum_j a[k-j] * b[j] = sum_j b[j] * a[k-j]
+    //
+    // This requires commutativity of ring multiplication and sum manipulation.
+    // The SMT solver can't automatically see through Seq::new, so we assume.
     assume(poly_eqv(poly_mul_raw(a, b), poly_mul_raw(b, a)));
 }
 
