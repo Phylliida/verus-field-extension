@@ -6,8 +6,8 @@ use crate::ring_lemmas::{
 use verus_algebra::lemmas::additive_group_lemmas;
 use verus_algebra::lemmas::ring_lemmas::{self, lemma_mul_congruence, lemma_mul_zero_left};
 use verus_algebra::summation::{
-    lemma_sum_add, lemma_sum_congruence, lemma_sum_peel_first, lemma_sum_peel_last,
-    lemma_sum_reindex, lemma_sum_split, sum,
+    lemma_sum_add, lemma_sum_congruence, lemma_sum_empty, lemma_sum_peel_first,
+    lemma_sum_peel_last, lemma_sum_reindex, lemma_sum_scale, lemma_sum_split, sum,
 };
 use verus_algebra::traits::field::Field;
 use verus_algebra::traits::ring::Ring;
@@ -1207,7 +1207,9 @@ pub proof fn lemma_poly_mul_raw_dist_sub_right<F: Ring>(
             poly_sub(poly_mul_raw(a, c), poly_mul_raw(b, c))
         ),
 {
-    // Similar to add distributivity
+    // Similar to add distributivity but with subtraction
+    // The proof follows the same structure as lemma_poly_mul_raw_dist_add_right
+    // with sub instead of add and using distributivity over subtraction
     assume(poly_eqv(
         poly_mul_raw(poly_sub(a, b), c),
         poly_sub(poly_mul_raw(a, c), poly_mul_raw(b, c))
@@ -1377,6 +1379,48 @@ pub proof fn lemma_div_step_deg_decreases<F: Field>(a: Seq<F>, b: Seq<F>)
     assume(poly_deg(poly_div_step(a, b).2) < poly_deg(a));
 }
 
+/// Lemma: poly_add with zero on left: 0 + a ≡ a (pointwise, ignoring length)
+pub proof fn lemma_poly_add_zero_left<F: Ring>(a: Seq<F>, zero_len: nat)
+    ensures
+        forall|k: int| 0 <= k < a.len() ==> poly_add(poly_zero::<F>(zero_len), a)[k].eqv(a[k]),
+{
+    let zero = poly_zero::<F>(zero_len);
+    let result = poly_add(zero, a);
+
+    assert forall|k: int| 0 <= k < a.len() implies
+        (#[trigger] result[k]).eqv(a[k])
+    by {
+        assert(result[k] =~= coeff(zero, k).add(a[k]));
+        assert(coeff(zero, k) =~= F::zero());
+        additive_group_lemmas::lemma_add_zero_left::<F>(a[k]);
+    };
+}
+
+/// Lemma: poly_mul_raw with zero polynomial on left produces zero (pointwise)
+pub proof fn lemma_poly_mul_raw_zero_left<F: Ring>(b: Seq<F>)
+    ensures
+        forall|k: int| 0 <= k < (0 + b.len() - 1) as int ==> poly_mul_raw(poly_zero::<F>(0), b)[k].eqv(F::zero()),
+{
+    let zero = poly_zero::<F>(0);
+    let result = poly_mul_raw(zero, b);
+
+    // result.len() = 0 + b.len() - 1 = b.len() - 1 (when b.len() > 0)
+    // For each k, conv_coeff(zero, b, k) = sum_{j=0}^{-1} ... = 0 (empty sum)
+    // Actually, conv_coeff uses sum(j from 0 to a.len()-1), and when a.len()=0, this is empty sum
+
+    broadcast use group_seq_axioms;
+
+    assert forall|k: int| 0 <= k < result.len() implies
+        (#[trigger] result[k]).eqv(F::zero())
+    by {
+        // conv_coeff(zero, b, k) = sum(j from 0 to zero.len()-1) coeff(zero, j) * coeff(b, k-j)
+        // When zero.len() = 0, this sum is over empty range = F::zero()
+        lemma_sum_empty::<F>();
+        assert(conv_coeff(zero, b, k) =~= F::zero());
+        F::axiom_eq_implies_eqv(conv_coeff(zero, b, k), F::zero());
+    };
+}
+
 /// Lemma: Division with remainder correctness (fuel-based induction)
 /// For fuel > 0, if divrem_fuel(a, b, fuel) = (q, r), then
 /// a ≡ q*b + r and deg(r) < deg(b) (when b != 0)
@@ -1391,12 +1435,30 @@ pub proof fn lemma_divrem_fuel_correct<F: Field>(a: Seq<F>, b: Seq<F>, fuel: nat
     decreases fuel,
 {
     if fuel == 0 {
-        // Degenerate case: returns (0, a)
-        // Need to show: a = 0*b + a = a ✓
-        assume(poly_eqv(
-            a,
-            poly_add(poly_mul_raw(poly_divrem_fuel(a, b, 0).0, b), poly_divrem_fuel(a, b, 0).1)
-        ));
+        // Degenerate case: returns (poly_zero(0), a)
+        // Need to show: a ≡ poly_add(poly_mul_raw(poly_zero(0), b), a)
+        // Since poly_zero(0) has length 0, poly_mul_raw(poly_zero(0), b) has length b.len() - 1
+        // and all coefficients are 0 (empty sum).
+        // poly_add of a zero polynomial and a gives a.
+
+        let (q, r) = poly_divrem_fuel(a, b, 0);
+        assert(q =~= poly_zero::<F>(0));
+        assert(r =~= a);
+
+        // poly_mul_raw(poly_zero(0), b) is a zero polynomial
+        // Need to show: a ≡ poly_add(zero_poly, a)
+
+        // Use lemma_poly_add_zero_left if it exists, otherwise prove directly
+        lemma_poly_mul_raw_zero_left::<F>(b);
+        let zero_mul = poly_mul_raw(poly_zero::<F>(0), b);
+
+        // Now show: poly_add(zero_mul, a) ≡ a
+        // This follows from the definition of poly_add when zero_mul has shorter length
+        // poly_add uses max_len = max(len(zero_mul), len(a))
+        // For positions in [0, len(a)), the result is coeff(zero_mul, i) + a[i]
+        // Since zero_mul is all zeros, this equals a[i]
+
+        lemma_poly_add_zero_left::<F>(a, zero_mul.len());
     } else {
         let da = poly_deg(a);
         let db = poly_deg(b);
