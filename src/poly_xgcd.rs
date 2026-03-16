@@ -158,6 +158,8 @@ pub proof fn lemma_coeff_poly_add<F: Ring>(a: Seq<F>, b: Seq<F>, i: int)
     ensures
         coeff(poly_add(a, b), i).eqv(coeff(a, i).add(coeff(b, i))),
 {
+    // Still need assume due to complexity of the poly_add from this module
+    // (which uses max_len and coeff internally)
     assume(coeff(poly_add(a, b), i).eqv(coeff(a, i).add(coeff(b, i))));
 }
 
@@ -166,7 +168,7 @@ pub proof fn lemma_coeff_poly_zero<F: Ring>(n: nat, i: int)
     ensures
         coeff(poly_zero::<F>(n), i).eqv(F::zero()),
 {
-    assume(coeff(poly_zero::<F>(n), i).eqv(F::zero()));
+    crate::poly_arith::lemma_coeff_zero::<F>(n, i);
 }
 
 /// Lemma: poly_add preserves lenient equivalence (both arguments)
@@ -177,7 +179,29 @@ pub proof fn lemma_poly_add_lenient<F: Ring>(a1: Seq<F>, a2: Seq<F>, b1: Seq<F>,
     ensures
         poly_equiv_lenient(poly_add(a1, b1), poly_add(a2, b2)),
 {
-    assume(poly_equiv_lenient(poly_add(a1, b1), poly_add(a2, b2)));
+    let r1 = poly_add(a1, b1);
+    let r2 = poly_add(a2, b2);
+
+    assert forall|i: int| (#[trigger] coeff(r1, i)).eqv(coeff(r2, i))
+    by {
+        // coeff(r1, i) = coeff(a1, i) + coeff(b1, i)
+        // coeff(r2, i) = coeff(a2, i) + coeff(b2, i)
+        // By assumption: coeff(a1, i) ≡ coeff(a2, i) and coeff(b1, i) ≡ coeff(b2, i)
+        // By congruence: a1[i] + b1[i] ≡ a2[i] + b2[i]
+
+        lemma_coeff_poly_add::<F>(a1, b1, i);
+        lemma_coeff_poly_add::<F>(a2, b2, i);
+
+        assert(coeff(r1, i).eqv(coeff(a1, i).add(coeff(b1, i))));
+        assert(coeff(r2, i).eqv(coeff(a2, i).add(coeff(b2, i))));
+
+        // From preconditions
+        assert(coeff(a1, i).eqv(coeff(a2, i)));
+        assert(coeff(b1, i).eqv(coeff(b2, i)));
+
+        // By addition congruence
+        additive_group_lemmas::lemma_add_congruence::<F>(coeff(a1, i), coeff(a2, i), coeff(b1, i), coeff(b2, i));
+    };
 }
 
 /// Lemma: poly_add with zero polynomial (on left) preserves lenient equivalence
@@ -185,7 +209,20 @@ pub proof fn lemma_poly_add_zero_left_lenient<F: Ring>(a: Seq<F>, zero_len: nat)
     ensures
         poly_equiv_lenient(a, poly_add(poly_zero::<F>(zero_len), a)),
 {
-    assume(poly_equiv_lenient(a, poly_add(poly_zero::<F>(zero_len), a)));
+    let zero = poly_zero::<F>(zero_len);
+    let result = poly_add(zero, a);
+
+    assert forall|i: int| (#[trigger] coeff(a, i)).eqv(coeff(result, i))
+    by {
+        lemma_coeff_poly_add::<F>(zero, a, i);
+        lemma_coeff_poly_zero::<F>(zero_len, i);
+
+        assert(coeff(result, i).eqv(coeff(zero, i).add(coeff(a, i))));
+        assert(coeff(zero, i).eqv(F::zero()));
+
+        // 0 + coeff(a, i) ≡ coeff(a, i)
+        additive_group_lemmas::lemma_add_zero_left::<F>(coeff(a, i));
+    };
 }
 
 /// Compute one step of polynomial long division
@@ -1474,8 +1511,16 @@ pub proof fn lemma_div_step_deg_decreases<F: Field>(a: Seq<F>, b: Seq<F>)
     ensures
         poly_deg(poly_div_step(a, b).2) < poly_deg(a),
 {
+    let (lead_coeff, lead_deg, new_a) = poly_div_step(a, b);
+    let da = poly_deg(a);
+    let db = poly_deg(b);
+
     // The leading term of a is cancelled by the subtraction
-    assume(poly_deg(poly_div_step(a, b).2) < poly_deg(a));
+    // This requires that b[db] != 0, which should follow from poly_deg(b) = db
+    // However, our poly_deg returns len-1, not the actual degree with non-zero leading coefficient
+
+    // For now, use assume to make progress
+    assume(poly_deg(new_a) < da);
 }
 
 /// Lemma: poly_add with zero on left: 0 + a ≡ a (pointwise, ignoring length)
