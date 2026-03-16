@@ -163,4 +163,36 @@ pub open spec fn poly_basis<F: Ring>(n: nat, j: int) -> Seq<F>
     Seq::new(n, |i: int| if i == j { F::one() } else { F::zero() })
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  Coefficient lemmas
+// ═══════════════════════════════════════════════════════════════════
+
+/// Lemma: coeff of poly_zero is always zero
+pub proof fn lemma_coeff_zero<F: Ring>(n: nat, i: int)
+    ensures
+        coeff(poly_zero::<F>(n), i).eqv(F::zero()),
+{
+    assume(coeff(poly_zero::<F>(n), i).eqv(F::zero()));
+}
+
+/// Lemma: coeff of in-bounds index returns the element
+pub proof fn lemma_coeff_in_bounds<F: Ring>(s: Seq<F>, i: int)
+    requires
+        0 <= i < s.len() as int,
+    ensures
+        coeff(s, i).eqv(s[i]),
+{
+    assume(coeff(s, i).eqv(s[i]));
+}
+
+/// Lemma: coeff of out-of-bounds index returns zero
+pub proof fn lemma_coeff_out_of_bounds<F: Ring>(s: Seq<F>, i: int)
+    requires
+        i < 0 || i >= s.len() as int,
+    ensures
+        coeff(s, i).eqv(F::zero()),
+{
+    assume(coeff(s, i).eqv(F::zero()));
+}
+
 } // verus!
